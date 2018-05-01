@@ -18,17 +18,12 @@ void print_matrix(float *c, int n) {
 
 
 // Fill c with arrow matrix generated from vectors a and b
-// For simplicity's sake, a contains gamma : [a_1,...a_(n-1), gamma]
-void generate_arrow(float *a, float *b, float *c, int n) {
+void generate_arrow(float *a, float *b, float *c, float gamma, int n) {
 	
 	int j = 0; 
 
 	// Fill the arrow
 	for (int i=0; i<n; i ++){
-		
-		// Iterate over the diagonal of c
-		c[n*i + j] = a[i];
-		j ++; 
 		
 		if (i<n-1) {
 
@@ -38,22 +33,55 @@ void generate_arrow(float *a, float *b, float *c, int n) {
 		// Iterate over the last row of c
 		c[n * (n-1) + i] = b[i];
 
+		// Iterate over the diagonal of c
+		c[n*i + j] = a[i];
+		j ++; 
+
 		}
+	}
+
+	// Fill last element of diagonal with gamma
+	c[(n-1) * (n-1)] = gamma;
+}
+
+
+
+// Kernel for computing the square of a vector
+// The square of b is needed during several computations 
+// for all subproblems, so better to compute it once and for all
+__global__ void square_kernel(float *bGPU, float *bsqrGPU, int n){
+	
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+	
+	while(idx < n){
+	bsqrGPU[idx] = bGPU[idx] * bGPU[idx];
+	idx += gridDim.x * blockDim.x;
 	}
 }
 
 
 
+
+
+
+
+
+
+
+
 int main (void) {
 
-	// Reference vectors
+	// Declare vectors
 	float *a, *b, *c;
 
 	// Size of arrow matrix
 	int n = 10;
 	
+	// Declare and reference gamma
+	float gamma = 1;
+	
 	// Memory allocation
-	a = (float*)malloc(n*sizeof(int));
+	a = (float*)malloc((n-1)*sizeof(int));
 	b = (float*)malloc((n-1)*sizeof(int));
 	c = (float*)malloc(n*n*sizeof(int));
 
@@ -71,8 +99,26 @@ int main (void) {
 
 	// Print c
 	print_matrix(c, n);
+
 	
-	// Free memory
+	// Declare vectors on GPU
+	int *aGPU, *bGPU, *cGPU;
+
+	// Create memory space for vectors on GPU
+	cudaMalloc(&aGPU, (n-1)*sizeof(float));
+	cudaMalloc(&bGPU, (n-1)*sizeof(float));
+	
+	
+
+
+
+
+	// Free memory on GPU
+	cudaFree(aGPU);
+	cudaFree(aGPU);
+
+
+	// Free memory on CPU
 	free(a);
 	free(b);
 	free(c);
