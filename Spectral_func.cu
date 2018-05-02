@@ -80,13 +80,18 @@ __device__ float spectral_func(float *aGPU,
 			       int n) {
 	
 	float sum = 0;
+	
+	//For the use of registers
+	float xGPU_local = *xGPU;
 
 	for (int i=0; i<n-1; i++){
-		sum += bsqrGPU[i] / (aGPU[i] - *xGPU);
+		sum += bsqrGPU[i] / (aGPU[i] - xGPU_local);
 	}
 	
-	return *xGPU - *gammaGPU + sum;
+	return xGPU_local - *gammaGPU + sum;
 }
+
+
 
 
 // Kernel associated with spectral_func device function
@@ -105,10 +110,67 @@ __global__ void spectral_func_kernel(float *aGPU,
 	idx += gridDim.x * blockDim.x;
 
 	}
-
 }
 
 
+
+// Device function to compute the interior versions of sigma
+__device__ float sigma_interior(float *aGPU, 
+		       		float *bsqrGPU, 
+		                float *xGPU, 
+		                float *gammaGPU, 
+				int k,
+		                int n) {
+	
+	float sum = 0;
+
+	//Use the registers
+	float xGPU_local = *xGPU;
+	float ak_local = aGPU[k];
+	float ak_minus1_local = aGPU[k-1]; 
+
+	for (int i=0; i<n-1; i++) {
+		
+		//Use of registers
+		float ai_local = aGPU[i];
+		
+		float num = bsqrGPU[i] * (ai_local - ak_minus1_local) * (ai_local - ak_local);
+		
+		float deno = (ai_local - xGPU_local) * (ai_local - xGPU_local) 
+		        * (ai_local - xGPU_local);
+		
+		sum +=  num / deno;
+	}
+
+	float term1 = 3 * xGPU_local - *gammaGPU - ak_local - ak_minus1_local;
+
+	return term1 + sum;
+}
+
+
+
+
+// Kernel just for testing sigma interior function
+// We can certainly do better in terms of paralellisation
+// Also here we calculate also sigma for the two limiting intervals : 
+//(a[0], +inf) and (-inf, a[n-1]), a different formula should be used
+__global__ void sigma_interior_kernel(float *aGPU, 
+				      float *bsqrGPU, 
+				      float *yvecGPU, 
+				      float *xvecGPU, 
+				      float *gammaGPU, 
+				      int n) {
+
+
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+	while(idx < n){
+
+	yvecGPU[idx] =  sigma_interior(aGPU, bsqrGPU, &(xvecGPU[idx]), gammaGPU, n, idx);
+	idx += gridDim.x * blockDim.x;
+
+	}
+}
 
 
 
@@ -187,7 +249,14 @@ int main (void) {
 	//print_vector(bsqr, n-1);
 
 	//Compute spectral function on GPU
-	spectral_func_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+	//spectral_func_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+
+	// Transfer spectral function results on CPU to print it
+	//cudaMemcpy(yvec, yvecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
+	//print_vector(yvec, n);
+
+	//Compute sigma_interior function on GPU
+	sigma_interior_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
 
 	// Transfer spectral function results on CPU to print it
 	cudaMemcpy(yvec, yvecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
