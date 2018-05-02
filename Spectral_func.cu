@@ -92,6 +92,28 @@ __device__ float spectral_func(float *aGPU,
 }
 
 
+// Device function for computing f'(*xGPU)
+__device__ float spectral_func_prime(float *aGPU, 
+			       	     float *bsqrGPU, 
+			             float *xGPU, 
+			             int n) {
+	
+	float sum = 0;
+	
+	//For the use of registers
+	float xGPU_local = *xGPU;
+
+	for (int i=0; i<n-1; i++){
+
+		int ai_local = aGPU[i];
+		sum += bsqrGPU[i] / ((ai_local - xGPU_local) * (ai_local - xGPU_local));
+	}
+	
+	return 1 + sum;
+}
+
+
+
 
 
 // Kernel associated with spectral_func device function
@@ -171,6 +193,26 @@ __global__ void sigma_interior_kernel(float *aGPU,
 
 	}
 }
+
+
+
+// Interior version for computation of alpha
+__device__ float alpha_interior(float *sigma, float *x, float *ak, float *ak_minus1){
+
+	return *sigma / (*ak_minus1 - *x) * (*ak - *x);
+}
+
+
+// Interior version for computation of beta
+__device__ float beta_interior(float *fprime, float *f, float *x, float *ak, float *ak_minus1){
+
+	float x_local = *x;
+	float fac = (1 / (*ak_minus1 - x_local) + 1 / (*ak - x_local)); 
+	return *fprime - fac * (*f); 
+	
+}
+
+
 
 
 
