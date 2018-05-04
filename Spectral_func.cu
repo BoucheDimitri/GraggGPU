@@ -72,7 +72,7 @@ __global__ void square_kernel(float *bGPU, float *bsqrGPU, int n){
 
 
 
-// Device function for computing f(*xGPU)
+// Device function for computing f at a given point
 __device__ float spectral_func(float *aGPU, 
 			       float *bsqrGPU, 
 			       float *xGPU, 
@@ -92,7 +92,7 @@ __device__ float spectral_func(float *aGPU,
 }
 
 
-// Device function for computing f'(*xGPU)
+// Device function for computing f' at a given point
 __device__ float spectral_func_prime(float *aGPU, 
 			       	     float *bsqrGPU, 
 			             float *xGPU, 
@@ -137,7 +137,7 @@ __global__ void spectral_func_kernel(float *aGPU,
 
 
 // Device function to compute the interior versions of sigma
-__device__ float sigma_interior(float *aGPU, 
+__device__ float interior_sigma(float *aGPU, 
 		       		float *bsqrGPU, 
 		                float *xGPU, 
 		                float *gammaGPU, 
@@ -147,7 +147,7 @@ __device__ float sigma_interior(float *aGPU,
 	float sum = 0;
 
 	//Use the registers
-	float xGPU_local = *xGPU;
+	float x_local = *xGPU;
 	float ak_local = aGPU[k];
 	float ak_minus1_local = aGPU[k-1]; 
 
@@ -158,13 +158,13 @@ __device__ float sigma_interior(float *aGPU,
 		
 		float num = bsqrGPU[i] * (ai_local - ak_minus1_local) * (ai_local - ak_local);
 		
-		float deno = (ai_local - xGPU_local) * (ai_local - xGPU_local) 
-		        * (ai_local - xGPU_local);
+		float deno = (ai_local - x_local) * (ai_local - x_local) 
+		        * (ai_local - x_local);
 		
 		sum +=  num / deno;
 	}
 
-	float term1 = 3 * xGPU_local - *gammaGPU - ak_local - ak_minus1_local;
+	float term1 = 3 * x_local - *gammaGPU - ak_local - ak_minus1_local;
 
 	return term1 + sum;
 }
@@ -176,35 +176,35 @@ __device__ float sigma_interior(float *aGPU,
 // We can certainly do better in terms of paralellisation
 // Also here we calculate also sigma for the two limiting intervals : 
 //(a[0], +inf) and (-inf, a[n-1]), a different formula should be used
-__global__ void sigma_interior_kernel(float *aGPU, 
-				      float *bsqrGPU, 
-				      float *yvecGPU, 
-				      float *xvecGPU, 
-				      float *gammaGPU, 
-				      int n) {
+//__global__ void sigma_interior_kernel(float *aGPU, 
+//				      float *bsqrGPU, 
+//				      float *yvecGPU, 
+//				      float *xvecGPU, 
+//				      float *gammaGPU, 
+//				      int n) {
+//
+//
+//	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+//
+//	while(idx < n){
 
-
-	int idx = threadIdx.x + blockIdx.x * blockDim.x;
-
-	while(idx < n){
-
-	yvecGPU[idx] =  sigma_interior(aGPU, bsqrGPU, &(xvecGPU[idx]), gammaGPU, n, idx);
-	idx += gridDim.x * blockDim.x;
-
-	}
-}
+//	yvecGPU[idx] =  interior_sigma(aGPU, bsqrGPU, &(xvecGPU[idx]), gammaGPU, n, idx);
+//	idx += gridDim.x * blockDim.x;
+//
+//	}
+//}
 
 
 
 // Interior version for computation of alpha
-__device__ float alpha_interior(float *sigma, float *x, float *ak, float *ak_minus1){
+__device__ float interior_alpha(float *sigma, float *x, float *ak, float *ak_minus1){
 
 	return *sigma / (*ak_minus1 - *x) * (*ak - *x);
 }
 
 
 // Interior version for computation of beta
-__device__ float beta_interior(float *fprime, float *f, float *x, float *ak, float *ak_minus1){
+__device__ float interior_beta(float *fprime, float *f, float *x, float *ak, float *ak_minus1){
 
 	float x_local = *x;
 	float fac = (1 / (*ak_minus1 - x_local) + 1 / (*ak - x_local)); 
@@ -213,7 +213,44 @@ __device__ float beta_interior(float *fprime, float *f, float *x, float *ak, flo
 }
 
 
+// Square root device function
+__device__ float square_root(float x){
 
+	return expf(0.5 * logf(x));
+}
+
+
+// Computation of the update (delta)
+__device__ float interior_delta(float *f, float *alpha, float *beta){
+
+
+	float term1 = 2 * (*f) / (*beta);
+	float term2 = 2 * (*alpha) / (*beta);
+	float deno = 1 + square_root(1 + term1 * term2);
+	return term1 / deno; 
+}
+
+
+
+__global__ void test_all_kernel(float *aGPU, 
+				float *bsqrGPU, 
+				float *yvecGPU, 
+				float *xvecGPU, 
+				float *gammaGPU, 
+				int n) {
+
+
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+	// IMPORTANT : n-2 and not n to consider only the interior intervals 
+	// TO BE MODIFIED 
+	while(idx < n-2){
+		float sig = interior_sigma(aGPU, bsqrGPU, &(xvecGPU[idx + 1]), gammaGPU, idx + 1, n);
+		float alpha = interior_alpha(&sig, &(xvecGPU[idx + 1]), &(aGPU[idx + 1]), &(aGPU[idx]));
+		yvecGPU[idx + 1] = alpha;
+		idx += gridDim.x * blockDim.x;
+	}
+}
 
 
 int main (void) {
@@ -244,17 +281,17 @@ int main (void) {
 		b[i] = 10 - i;
 	}
 
-	// We take the middle of the intervals
+	//Set gamma
+	*gamma = 1;
+
+	// We take the middle of the intervals (initial values from the paper for interior points)
 	for (int i=1; i<n-1; i++){
 		xvec[i] = (a[i-1] + a[i]) / 2 ;
 	}
 	
-	//Arbitrary filling of the edges values
+	//Arbitrary filling of the edges values (TO REPLACE BY INITIAL VALUES FROM THE PAPER)
 	xvec[0] = a[0] + 5;
 	xvec[n-1] = a[n-2] - 5; 
-
-	//Fill gamma 
-	*gamma = 1;
 
 
 	// Fill c with arrow matrix generated from a and b
@@ -298,7 +335,9 @@ int main (void) {
 	//print_vector(yvec, n);
 
 	//Compute sigma_interior function on GPU
-	sigma_interior_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+	//sigma_interior_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+
+	test_all_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
 
 	// Transfer spectral function results on CPU to print it
 	cudaMemcpy(yvec, yvecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
