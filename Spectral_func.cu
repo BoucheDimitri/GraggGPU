@@ -247,7 +247,8 @@ __global__ void test_all_kernel(float *aGPU,
 	while(idx < n-2){
 		float sig = interior_sigma(aGPU, bsqrGPU, &(xvecGPU[idx + 1]), gammaGPU, idx + 1, n);
 		float alpha = interior_alpha(&sig, &(xvecGPU[idx + 1]), &(aGPU[idx + 1]), &(aGPU[idx]));
-		yvecGPU[idx + 1] = alpha;
+		//yvecGPU[idx + 1] = alpha;
+		yvecGPU[idx + 1] = sig;
 		idx += gridDim.x * blockDim.x;
 	}
 }
