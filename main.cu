@@ -77,7 +77,7 @@ __global__ void square_kernel(float *bGPU, float *bsqrGPU, int n){
 __device__ float spectral_func(float *aGPU, 
 			       float *bsqrGPU, 
 			       float x, 
-			       float *gammaGPU, 
+			       float gamma, 
 			       int n) {
 	
 	float sum = 0;
@@ -86,7 +86,7 @@ __device__ float spectral_func(float *aGPU,
 		sum += bsqrGPU[i] / (aGPU[i] - x);
 	}
 	
-	return x - *gammaGPU + sum;
+	return x - gamma + sum;
 }
 
 
@@ -112,7 +112,7 @@ __device__ float spectral_func_prime(float *aGPU,
 __device__ float interior_sigma(float *aGPU, 
 		       		float *bsqrGPU, 
 		                float x, 
-		                float *gammaGPU, 
+		                float gamma, 
 				int k,
 		                int n) {
 	
@@ -135,7 +135,7 @@ __device__ float interior_sigma(float *aGPU,
 		sum +=  num / deno;
 	}
 
-	float term1 = 3 * x - *gammaGPU - ak_local - ak_minus1_local;
+	float term1 = 3 * x - gamma - ak_local - ak_minus1_local;
 
 	return term1 + sum;
 }
@@ -178,7 +178,7 @@ __device__ float interior_delta(float f, float alpha, float beta){
 // device function to find the zero within the interval (a[k], a[k-1])
 __device__ float interior_zero_finder(float *aGPU, 
 			   	      float *bsqrGPU, 
-			              float *gammaGPU, 
+			              float gamma, 
 			   	      float x, 
 			   	      int k, 
 			   	      int n, 
@@ -190,13 +190,13 @@ __device__ float interior_zero_finder(float *aGPU,
 	float f = 2 * square_root(epsilon); 
 	while ((i < maxit) && (f*f > epsilon)){
 		// Computation of sigma(x), solution of system (5) in page 7 (12 in the pdf) of the article
-		float sig = interior_sigma(aGPU, bsqrGPU, x, gammaGPU, k, n);
+		float sig = interior_sigma(aGPU, bsqrGPU, x, gamma, k, n);
 		float ak_local = aGPU[k]; 
 		float ak_minus1_local = aGPU[k - 1]; 
 		// Computation of alpha(x), see definition (7) of the article in page 8 (13 in the pdf)
 		float alpha = interior_alpha(sig, x, ak_local, ak_minus1_local);
 		// Computation of spectral_func(x)
-		f = spectral_func(aGPU, bsqrGPU, x, gammaGPU, n);
+		f = spectral_func(aGPU, bsqrGPU, x, gamma, n);
 		// Computation of spectral_func_prime(x)
 		float fprime = spectral_func_prime(aGPU, bsqrGPU, x, n);
 		// Computation of beta(x), see definition (8) of the article in page 8 (13 in the pdf)
@@ -216,7 +216,7 @@ __global__ void find_zeros_kernel(float *aGPU,
 				  float *bsqrGPU, 
 				  float *yvecGPU, 
 				  float *xvecGPU, 
-				  float *gammaGPU, 
+				  float gamma, 
 				  int n, 
 				  int maxit, 
 				  float epsilon) {
@@ -230,7 +230,7 @@ __global__ void find_zeros_kernel(float *aGPU,
 		// Initial value
 		float x = xvecGPU[idx + 1]; 
 		// Each core gets an interior interval and finds the unique zero within
-		yvecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gammaGPU, x, idx + 1, n, maxit, epsilon); 
+		yvecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gamma, x, idx + 1, n, maxit, epsilon); 
 		// In case n - 2 > gridDim.x * blockDim.x
 		idx += gridDim.x * blockDim.x;
 	}
@@ -242,7 +242,7 @@ __global__ void test_all_kernel(float *aGPU,
 				float *bsqrGPU, 
 				float *yvecGPU, 
 				float *xvecGPU, 
-				float *gammaGPU, 
+				float gamma, 
 				int n) {
 
 
@@ -250,11 +250,11 @@ __global__ void test_all_kernel(float *aGPU,
 
 	while(idx < n-2){
 		float x_local = xvecGPU[idx + 1]; 
-		float sig = interior_sigma(aGPU, bsqrGPU, x_local, gammaGPU, idx + 1, n);
+		float sig = interior_sigma(aGPU, bsqrGPU, x_local, gamma, idx + 1, n);
 		float ak_local = aGPU[idx + 1]; 
 		float ak_minus1_local = aGPU[idx]; 
 		float alpha = interior_alpha(sig, x_local, ak_local, ak_minus1_local);
-		float f = spectral_func(aGPU, bsqrGPU, x_local, gammaGPU, n);
+		float f = spectral_func(aGPU, bsqrGPU, x_local, gamma, n);
 		float fprime = spectral_func_prime(aGPU, bsqrGPU, x_local, n);
 		float beta = interior_beta(fprime, f, x_local, ak_local, ak_minus1_local);
 		float delta = interior_delta(f, alpha, beta);
@@ -267,13 +267,16 @@ __global__ void test_all_kernel(float *aGPU,
 int main (void) {
 
 	// Declare vectors
-	float *a, *b, *bsqr, *xvec, *yvec, *c, *gamma;
+	float *a, *b, *bsqr, *x0_vec, *xstar_vec, *c; 
+
+	// Gamma
+	float gamma = 1; 
 
 	// Size of arrow matrix
-	int n = 10;
+	int n = 10000;
 
 	//Maximum number of iterations
-	int maxit = 1000; 
+	int maxit = 10; 
 
 	//Stopping criterion
 	float epsilon = 0.0001;  
@@ -283,92 +286,86 @@ int main (void) {
 	b = (float*)malloc((n-1)*sizeof(float));
 	bsqr = (float*)malloc((n-1)*sizeof(float));
 	c = (float*)malloc(n*n*sizeof(float));
-	xvec = (float*)malloc(n*sizeof(float));
-	yvec = (float*)malloc(n*sizeof(float));
-	gamma = (float*)malloc(sizeof(float));
+	x0_vec = (float*)malloc(n*sizeof(float));
+	xstar_vec = (float*)malloc(n*sizeof(float));
 	
 
-
-	// Fill the vectors
+	// Fill the vectors a and b (arbitrarily for now)
 	for (int i=0; i<n; i++){
-		a[i] = 20 - i;
+		a[i] = n - i;
 	}
 
 	for (int i=0; i<n-1; i++){
-		b[i] = 10 - i;
+		b[i] = n/2 - i;
 	}
 
-	//Set gamma
-	*gamma = 1;
 
-	// We take the middle of the intervals (initial values from the paper for interior points)
+	// We take the middle of the intervals as initial value 
+	//(as advised in the paper at the beginning of  page 8 (13 of the pdf) 
 	for (int i=1; i<n-1; i++){
-		xvec[i] = (a[i-1] + a[i]) / 2 ;
+		x0_vec[i] = (a[i-1] + a[i]) / 2 ;
 	}
 	
 	//Arbitrary filling of the edges values (TO REPLACE BY INITIAL VALUES FROM THE PAPER)
-	xvec[0] = a[0] + 5;
-	xvec[n-1] = a[n-2] - 5; 
+	x0_vec[0] = a[0] + 5;
+	x0_vec[n-1] = a[n-2] - 5; 
 
 
 	// Fill c with arrow matrix generated from a and b
-	generate_arrow(a, b, c, *gamma, n);
+	//generate_arrow(a, b, c, gamma, n);
 
-	// Print c
-	print_matrix(c, n);
+	// Print c (not very necessary actually)
+	//printf("The arrow matrix : \n");
+	//print_matrix(c, n);
 
 	
 	// Declare vectors on GPU
-	float *aGPU, *bGPU, *bsqrGPU, *xvecGPU, *yvecGPU, *gammaGPU;
+	float *aGPU, *bGPU, *bsqrGPU, *x0_vecGPU, *xstar_vecGPU;
 
 	// Create memory space for vectors on GPU
 	cudaMalloc(&aGPU, (n-1)*sizeof(float));
 	cudaMalloc(&bGPU, (n-1)*sizeof(float));
 	cudaMalloc(&bsqrGPU, (n-1)*sizeof(float));
-	cudaMalloc(&xvecGPU, n*sizeof(float));
-	cudaMalloc(&yvecGPU, n*sizeof(float));
-	cudaMalloc(&gammaGPU, sizeof(float));
+	// The initial values
+	cudaMalloc(&x0_vecGPU, n*sizeof(float));
+	// Container for the results
+	cudaMalloc(&xstar_vecGPU, n*sizeof(float));
 	
 
 	// Transfers on GPU
 	cudaMemcpy(aGPU, a, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(bGPU, b, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(xvecGPU, xvec, n*sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(gammaGPU, gamma, sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(x0_vecGPU, x0_vec, n*sizeof(float), cudaMemcpyHostToDevice);
 
 
 	//Compute square of b on GPU
 	square_kernel <<<1024, 512>>> (bGPU, bsqrGPU, n);
 
-	// Transfer on CPU and print to check result
-	//cudaMemcpy(bsqr, bsqrGPU, (n-1)*sizeof(float), cudaMemcpyDeviceToHost);
-	//print_vector(bsqr, n-1);
 
-	//Compute spectral function on GPU
-	//spectral_func_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+	// Find interior zeros on GPU
+	find_zeros_kernel<<<1024, 512>>> (aGPU, 
+					  bsqrGPU, 
+					  xstar_vecGPU, 
+					  x0_vecGPU, 
+					  gamma, 
+					  n,
+					  maxit, 
+					  epsilon); 
 
-	// Transfer spectral function results on CPU to print it
-	//cudaMemcpy(yvec, yvecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
-	//print_vector(yvec, n);
 
-	//Compute sigma_interior function on GPU
-	//sigma_interior_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
-
-	//test_all_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
-
-	//test_all_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
-
-	find_zeros_kernel<<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n, maxit, epsilon); 
-
-	// Transfer spectral function results on CPU to print it
-	cudaMemcpy(yvec, yvecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
-	print_vector(yvec, n);
+	// Transfer results on CPU to print it
+	cudaMemcpy(xstar_vec, xstar_vecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
+	printf("\n");
+	printf("The resulting zeros (eigen values) are : \n");
+	print_vector(xstar_vec, n);
 
 
 	// Free memory on GPU
 	cudaFree(aGPU);
 	cudaFree(bGPU);
 	cudaFree(bsqrGPU);
+	cudaFree(x0_vecGPU); 
+	cudaFree(xstar_vecGPU); 
 
 
 	// Free memory on CPU
@@ -376,6 +373,8 @@ int main (void) {
 	free(b);
 	free(bsqr);
 	free(c);
+	free(x0_vec); 
+	free(xstar_vec);
 	
 }
 
