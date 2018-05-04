@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 
-//Function to print a small square matrix of floats
+//Function to print a small square matrix of floats on host
 void print_matrix(float *c, int n) {
 
 	for (int i=0; i<n; i++){
@@ -15,7 +15,7 @@ void print_matrix(float *c, int n) {
  	}	
 }
 
-//Function to print a small vector of floats
+//Function to print a small vector of floats on host
 void print_vector(float *c, int n) {
 
 	for (int i=0; i<n; i++){
@@ -29,6 +29,7 @@ void print_vector(float *c, int n) {
 
 
 // Fill c with arrow matrix generated from vectors a and b
+// Not very useful actually for our problem
 void generate_arrow(float *a, float *b, float *c, float gamma, int n) {
 	
 	int j = 0; 
@@ -58,8 +59,8 @@ void generate_arrow(float *a, float *b, float *c, float gamma, int n) {
 
 
 // Kernel for computing the square of a vector
-// The square of b is needed during several computations 
-// for all subproblems, so better to compute it once and for all at the beginning
+// We actually only need the square of b in the computations 
+// Thus it is better to compute it once and for all
 __global__ void square_kernel(float *bGPU, float *bsqrGPU, int n){
 	
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -72,7 +73,7 @@ __global__ void square_kernel(float *bGPU, float *bsqrGPU, int n){
 
 
 
-// Device function for computing f at a given point
+// Device function for computing f (the spectral function) at a given point x
 __device__ float spectral_func(float *aGPU, 
 			       float *bsqrGPU, 
 			       float x, 
@@ -89,7 +90,7 @@ __device__ float spectral_func(float *aGPU,
 }
 
 
-// Device function for computing f' at a given point
+// Device function for computing f' (the prime derivative of the spectral function) at a given point x
 __device__ float spectral_func_prime(float *aGPU, 
 			       	     float *bsqrGPU, 
 			             float x, 
@@ -105,29 +106,6 @@ __device__ float spectral_func_prime(float *aGPU,
 	
 	return 1 + sum;
 }
-
-
-
-
-
-// Kernel associated with spectral_func device function
-//__global__ void spectral_func_kernel(float *aGPU, 
-//				     float *bsqrGPU, 
-//				     float *yvecGPU, 
-//				     float *xvecGPU, 
-//				     float *gammaGPU, 
-//				     int n) {
-//
-//	int idx = threadIdx.x + blockIdx.x * blockDim.x;
-//
-//	while(idx < n){
-//
-//	yvecGPU[idx] = spectral_func(aGPU, bsqrGPU, &(xvecGPU[idx]), gammaGPU, n);
-//	idx += gridDim.x * blockDim.x;
-//
-//	}
-//}
-
 
 
 // Device function to compute the interior versions of sigma
@@ -146,7 +124,7 @@ __device__ float interior_sigma(float *aGPU,
 
 	for (int i=0; i<n-1; i++) {
 		
-		//Use of registers
+		//Use the registers
 		float ai_local = aGPU[i];
 		
 		float num = bsqrGPU[i] * (ai_local - ak_minus1_local) * (ai_local - ak_local);
@@ -161,39 +139,6 @@ __device__ float interior_sigma(float *aGPU,
 
 	return term1 + sum;
 }
-
-
-
-
-// Kernel just for testing sigma interior function
-// We can certainly do better in terms of paralellisation
-// Also here we calculate also sigma for the two limiting intervals : 
-//(a[0], +inf) and (-inf, a[n-1]), a different formula should be used
-//__global__ void sigma_interior_kernel(float *aGPU, 
-//				      float *bsqrGPU, 
-//				      float *yvecGPU, 
-//				      float *xvecGPU, 
-//				      float *gammaGPU, 
-//				      int n) {
-//
-//
-//	int idx = threadIdx.x + blockIdx.x * blockDim.x;
-//
-//	while(idx < n){
-
-//	yvecGPU[idx] =  interior_sigma(aGPU, bsqrGPU, &(xvecGPU[idx]), gammaGPU, n, idx);
-//	idx += gridDim.x * blockDim.x;
-//
-//	}
-//}
-
-
-
-// Interior version for computation of alpha
-//__device__ float interior_alpha(float *sigma, float *x, float *ak, float *ak_minus1){
-
-//	return *sigma / (*ak_minus1 - *x) * (*ak - *x);
-//}
 
 
 // Interior version for computation of alpha
@@ -220,7 +165,7 @@ __device__ float square_root(float x){
 }
 
 
-// Computation of the update (delta)
+// Computation of the update (delta) on device
 __device__ float interior_delta(float f, float alpha, float beta){
 
 	float term1 = 2 * f / beta;
@@ -230,34 +175,43 @@ __device__ float interior_delta(float f, float alpha, float beta){
 }
 
 
+// device function to find the zero within the interval (a[k], a[k-1])
 __device__ float interior_zero_finder(float *aGPU, 
-			   	     float *bsqrGPU, 
-			             float *gammaGPU, 
-			   	     float x, 
-			   	     int k, 
-			   	     int n, 
-			   	     int maxit, 
-			   	     float epsilon){
+			   	      float *bsqrGPU, 
+			              float *gammaGPU, 
+			   	      float x, 
+			   	      int k, 
+			   	      int n, 
+			   	      int maxit, 
+			   	      float epsilon){
 
 	int i = 0;
 	// To guarantee entry in the loop
 	float f = 2 * square_root(epsilon); 
 	while ((i < maxit) && (f*f > epsilon)){
+		// Computation of sigma(x), solution of system (5) in page 7 (12 in the pdf) of the article
 		float sig = interior_sigma(aGPU, bsqrGPU, x, gammaGPU, k, n);
 		float ak_local = aGPU[k]; 
 		float ak_minus1_local = aGPU[k - 1]; 
+		// Computation of alpha(x), see definition (7) of the article in page 8 (13 in the pdf)
 		float alpha = interior_alpha(sig, x, ak_local, ak_minus1_local);
+		// Computation of spectral_func(x)
 		f = spectral_func(aGPU, bsqrGPU, x, gammaGPU, n);
+		// Computation of spectral_func_prime(x)
 		float fprime = spectral_func_prime(aGPU, bsqrGPU, x, n);
+		// Computation of beta(x), see definition (8) of the article in page 8 (13 in the pdf)
 		float beta = interior_beta(fprime, f, x, ak_local, ak_minus1_local);
+		// Computation of delta(x), see definition (9) of the article in page 8 (13 in the pdf)
 		float delta = interior_delta(f, alpha, beta);
+		// Update of x
 		x -= delta;
 		i ++; 
 	}
 	return x; 
 }
 	
-		   
+
+// Kernal to find the zeros (only the interior ones for now)   
 __global__ void find_zeros_kernel(float *aGPU, 
 				  float *bsqrGPU, 
 				  float *yvecGPU, 
@@ -269,15 +223,21 @@ __global__ void find_zeros_kernel(float *aGPU,
 
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
+	// IMPORTANT : n-2 and not n to consider only the interior intervals
+	// TO BE MODIFIED 
 	while(idx < n-2){
-
+		
+		// Initial value
 		float x = xvecGPU[idx + 1]; 
+		// Each core gets an interior interval and finds the unique zero within
 		yvecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gammaGPU, x, idx + 1, n, maxit, epsilon); 
+		// In case n - 2 > gridDim.x * blockDim.x
 		idx += gridDim.x * blockDim.x;
 	}
 }
 
 
+// KERNEL FOR TESTING, TO BE REMOVED, IGNORE
 __global__ void test_all_kernel(float *aGPU, 
 				float *bsqrGPU, 
 				float *yvecGPU, 
@@ -288,8 +248,6 @@ __global__ void test_all_kernel(float *aGPU,
 
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-	// IMPORTANT : n-2 and not n to consider only the interior intervals
-	// TO BE MODIFIED 
 	while(idx < n-2){
 		float x_local = xvecGPU[idx + 1]; 
 		float sig = interior_sigma(aGPU, bsqrGPU, x_local, gammaGPU, idx + 1, n);
