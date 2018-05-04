@@ -199,7 +199,7 @@ __device__ float interior_sigma(float *aGPU,
 // Interior version for computation of alpha
 __device__ float interior_alpha(float sigma, float x, float ak, float ak_minus1){
 
-	return sigma / ((ak_minus1 - x) * (ak - x));
+	return sigma / ((ak_minus1 - x) * (x - ak));
 }
 
 
@@ -221,15 +221,61 @@ __device__ float square_root(float x){
 
 
 // Computation of the update (delta)
-__device__ float interior_delta(float *f, float *alpha, float *beta){
+__device__ float interior_delta(float f, float alpha, float beta){
 
-
-	float term1 = 2 * (*f) / (*beta);
-	float term2 = 2 * (*alpha) / (*beta);
+	float term1 = 2 * f / beta;
+	float term2 = 2 * alpha / beta;
 	float deno = 1 + square_root(1 + term1 * term2);
 	return term1 / deno; 
 }
 
+
+__device__ float interior_zero_finder(float *aGPU, 
+			   	     float *bsqrGPU, 
+			             float *gammaGPU, 
+			   	     float x, 
+			   	     int k, 
+			   	     int n, 
+			   	     int maxit, 
+			   	     float epsilon){
+
+	int i = 0;
+	// To guarantee entry in the loop
+	float f = 2 * square_root(epsilon); 
+	while ((i < maxit) && (f*f > epsilon)){
+		float sig = interior_sigma(aGPU, bsqrGPU, x, gammaGPU, k, n);
+		float ak_local = aGPU[k]; 
+		float ak_minus1_local = aGPU[k - 1]; 
+		float alpha = interior_alpha(sig, x, ak_local, ak_minus1_local);
+		f = spectral_func(aGPU, bsqrGPU, x, gammaGPU, n);
+		float fprime = spectral_func_prime(aGPU, bsqrGPU, x, n);
+		float beta = interior_beta(fprime, f, x, ak_local, ak_minus1_local);
+		float delta = interior_delta(f, alpha, beta);
+		x -= delta;
+		i ++; 
+	}
+	return x; 
+}
+	
+		   
+__global__ void find_zeros_kernel(float *aGPU, 
+				  float *bsqrGPU, 
+				  float *yvecGPU, 
+				  float *xvecGPU, 
+				  float *gammaGPU, 
+				  int n, 
+				  int maxit, 
+				  float epsilon) {
+
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+	while(idx < n-2){
+
+		float x = xvecGPU[idx + 1]; 
+		yvecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gammaGPU, x, idx + 1, n, maxit, epsilon); 
+		idx += gridDim.x * blockDim.x;
+	}
+}
 
 
 __global__ void test_all_kernel(float *aGPU, 
@@ -242,20 +288,19 @@ __global__ void test_all_kernel(float *aGPU,
 
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-	// IMPORTANT : n-2 and not n to consider only the interior intervals 
+	// IMPORTANT : n-2 and not n to consider only the interior intervals
 	// TO BE MODIFIED 
 	while(idx < n-2){
 		float x_local = xvecGPU[idx + 1]; 
 		float sig = interior_sigma(aGPU, bsqrGPU, x_local, gammaGPU, idx + 1, n);
-		//printf("%f \n", sig); 
-		//float alpha = interior_alpha(sig, &(xvecGPU[idx + 1]), aGPU, idx + 1);
 		float ak_local = aGPU[idx + 1]; 
 		float ak_minus1_local = aGPU[idx]; 
 		float alpha = interior_alpha(sig, x_local, ak_local, ak_minus1_local);
-		//yvecGPU[idx + 1] = alpha;
-		//yvecGPU[idx + 1] = sig;
 		float f = spectral_func(aGPU, bsqrGPU, x_local, gammaGPU, n);
-		yvecGPU[idx + 1] = alpha;
+		float fprime = spectral_func_prime(aGPU, bsqrGPU, x_local, n);
+		float beta = interior_beta(fprime, f, x_local, ak_local, ak_minus1_local);
+		float delta = interior_delta(f, alpha, beta);
+		yvecGPU[idx + 1] = delta;
 		idx += gridDim.x * blockDim.x;
 	}
 }
@@ -268,6 +313,12 @@ int main (void) {
 
 	// Size of arrow matrix
 	int n = 10;
+
+	//Maximum number of iterations
+	int maxit = 1000; 
+
+	//Stopping criterion
+	float epsilon = 0.0001;  
 	
 	// Memory allocation
 	a = (float*)malloc((n-1)*sizeof(float));
@@ -345,7 +396,11 @@ int main (void) {
 	//Compute sigma_interior function on GPU
 	//sigma_interior_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
 
-	test_all_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+	//test_all_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+
+	//test_all_kernel <<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n);
+
+	find_zeros_kernel<<<1024, 512>>> (aGPU, bsqrGPU, yvecGPU, xvecGPU, gammaGPU, n, maxit, epsilon); 
 
 	// Transfer spectral function results on CPU to print it
 	cudaMemcpy(yvec, yvecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
