@@ -1,5 +1,11 @@
 #include <stdio.h>
 
+/**************************************************************
+The code in time.h is a part of a course on cuda taught by its authors:
+Lokman A. Abbas-Turki
+**************************************************************/
+#include "timer.h"
+
 
 //Function to print a small square matrix of floats on host
 void print_matrix(float *c, int n) {
@@ -16,9 +22,9 @@ void print_matrix(float *c, int n) {
 }
 
 //Function to print a small vector of floats on host
-void print_vector(float *c, int n) {
+void print_vector(float *c, int m, int n) {
 
-	for (int i=0; i<n; i++){
+	for (int i=0; i<m; i++){
 
 		printf("%f     ", c[i]);
 
@@ -266,21 +272,27 @@ __global__ void test_all_kernel(float *aGPU,
 
 int main (void) {
 
+
 	// Declare vectors
 	float *a, *b, *bsqr, *x0_vec, *xstar_vec, *c; 
+
 
 	// Gamma
 	float gamma = 1; 
 
+
 	// Size of arrow matrix
-	int n = 10000;
+	int n = 10;
+
 
 	//Maximum number of iterations
-	int maxit = 10; 
+	int maxit = 1000; 
+
 
 	//Stopping criterion
 	float epsilon = 0.0001;  
 	
+
 	// Memory allocation
 	a = (float*)malloc((n-1)*sizeof(float));
 	b = (float*)malloc((n-1)*sizeof(float));
@@ -288,15 +300,19 @@ int main (void) {
 	c = (float*)malloc(n*n*sizeof(float));
 	x0_vec = (float*)malloc(n*sizeof(float));
 	xstar_vec = (float*)malloc(n*sizeof(float));
+
+	
+	// Create instance of class Timer
+	Timer Tim;
 	
 
 	// Fill the vectors a and b (arbitrarily for now)
 	for (int i=0; i<n; i++){
-		a[i] = n - i;
+		a[i] = 2 * n - i;
 	}
 
 	for (int i=0; i<n-1; i++){
-		b[i] = n/2 - i;
+		b[i] = n - i;
 	}
 
 
@@ -332,6 +348,11 @@ int main (void) {
 	cudaMalloc(&xstar_vecGPU, n*sizeof(float));
 	
 
+	// Start timer
+	// We time also the transfer time
+	Tim.start();
+
+
 	// Transfers on GPU
 	cudaMemcpy(aGPU, a, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(bGPU, b, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
@@ -355,9 +376,24 @@ int main (void) {
 
 	// Transfer results on CPU to print it
 	cudaMemcpy(xstar_vec, xstar_vecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
+
+
+	// End timer
+	Tim.add();
+	
+
+	// Print the first zeros
+	// Number of roots to display
+	int m = 10;
 	printf("\n");
-	printf("The resulting zeros (eigen values) are : \n");
-	print_vector(xstar_vec, n);
+	printf("The first %i greater resulting roots (eigen values) are : \n", m);
+	print_vector(xstar_vec, m, n);
+
+	
+	// Print how long it took
+	printf("CPU timer for root finding (CPU-GPU and GPU-CPU transfers included) : %f s\n",
+		(float)Tim.getsum());
+
 
 
 	// Free memory on GPU
