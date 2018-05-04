@@ -220,7 +220,7 @@ __device__ float interior_zero_finder(float *aGPU,
 // Kernal to find the zeros (only the interior ones for now)   
 __global__ void find_zeros_kernel(float *aGPU, 
 				  float *bsqrGPU, 
-				  float *yvecGPU, 
+				  float *xstart_vecGPU, 
 				  float *xvecGPU, 
 				  float gamma, 
 				  int n, 
@@ -236,7 +236,7 @@ __global__ void find_zeros_kernel(float *aGPU,
 		// Initial value
 		float x = xvecGPU[idx + 1]; 
 		// Each core gets an interior interval and finds the unique zero within
-		yvecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gamma, x, idx + 1, n, maxit, epsilon); 
+		xstart_vecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gamma, x, idx + 1, n, maxit, epsilon); 
 		// In case n - 2 > gridDim.x * blockDim.x
 		idx += gridDim.x * blockDim.x;
 	}
@@ -286,11 +286,11 @@ int main (void) {
 
 
 	//Maximum number of iterations
-	int maxit = 1000; 
+	int maxit = 10000; 
 
 
 	//Stopping criterion
-	float epsilon = 0.0001;  
+	float epsilon = 0.000001;  
 	
 
 	// Memory allocation
