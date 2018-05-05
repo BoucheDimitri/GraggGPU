@@ -164,19 +164,12 @@ __device__ float interior_beta(float fprime, float f, float x, float ak, float a
 }
 
 
-// Square root device function
-__device__ float square_root(float x){
-
-	return expf(0.5 * logf(x));
-}
-
-
 // Computation of the update (delta) on device
 __device__ float interior_delta(float f, float alpha, float beta){
 
 	float term1 = 2 * f / beta;
 	float term2 = 2 * alpha / beta;
-	float deno = 1 + square_root(1 + term1 * term2);
+	float deno = 1 + sqrtf(1 + term1 * term2);
 	return term1 / deno; 
 }
 
@@ -193,7 +186,7 @@ __device__ float interior_zero_finder(float *aGPU,
 
 	int i = 0;
 	// To guarantee entry in the loop
-	float f = 2 * square_root(epsilon); 
+	float f = 2 * sqrtf(epsilon); 
 	while ((i < maxit) && (f*f > epsilon)){
 		// Computation of sigma(x), solution of system (5) in page 7 (12 in the pdf) of the article
 		float sig = interior_sigma(aGPU, bsqrGPU, x, gamma, k, n);
