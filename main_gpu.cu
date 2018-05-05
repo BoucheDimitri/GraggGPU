@@ -275,7 +275,7 @@ int main (void) {
 
 
 	// Size of arrow matrix
-	int n = 10;
+	int n = 100;
 
 
 	//Maximum number of iterations
