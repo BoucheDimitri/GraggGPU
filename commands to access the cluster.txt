@@ -1,0 +1,4 @@
+ssh hpcgif_5@ghome.metz.supelec.fr
+ssh term2.grid
+oarsub -p "cluster='cameron'" -l nodes=1,walltime=4:00:00 -I
+nvcc main_cpu.cu -arch=sm_50 -o CPU
