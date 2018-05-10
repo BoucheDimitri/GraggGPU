@@ -269,7 +269,7 @@ float interior_zero_finder(float *a,
 		i ++;
 	}
 	// We print a few controls to check the quality of the root obtained
-	if (k%10 ==0){
+	if (k%(int)(n/10) ==0){
 		printf("eigenvalue %d: %f, with spectral function %f after %d iterations \n"
 		, k, x, f*f, i);
 	}
@@ -307,9 +307,10 @@ float exterior_zero_finder(float *a,
 		i ++;
 	}
 	// We print a control to check the quality of the root obtained
-	printf("\n");
 	if (k==0){
+		printf("\n");
 		printf("********************* CONTROLS ********************* \n");
+		printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
 	}
 	printf("eigenvalue %d: %f, with spectral function %f after %d iterations \n"
 	, k, x, f*f, i);
@@ -328,9 +329,12 @@ int main (void) {
 	float gamma = 1;
 
 
-	// Size of arrow matrix
-	int n = 1000;
-
+	// Size of arrow matrix chosen by the user
+	int n = 100;
+	printf("\nWhich n (number of roots for the function) do you want? \n");
+	scanf("%d", &n);
+	printf("\n \n******************* CHOICE OF N ******************** \n");
+	printf("n = %d\n", n);
 
 	//Maximum number of iterations
 	int maxit = 1e4;
@@ -416,13 +420,12 @@ int main (void) {
 	// Print the first zeros
 	// Number of roots to display
 	int m = 10;
-	printf("\n");
-	printf("********************* RESULTS ********************** \n");
+	printf("\n********************* RESULTS ********************** \n");
 	printf("The first %i greater resulting roots (eigen values) are : \n", m);
 	print_vector(xstar_vec, m, n);
 
 	// Print how long it took
-	printf("CPU timer for root finding (CPU-GPU and GPU-CPU transfers included) : %f s\n",
+	printf("CPU timer for root finding : %f s\n\n",
 		(float)Tim.getsum());
 	printf("\n");
 
