@@ -66,27 +66,46 @@ void generate_arrow(float *a, float *b, float *c, float gamma, int n) {
 // Kernel for computing the square of a vector
 // We actually only need the square of b in the computations
 // Thus it is better to compute it once and for all
-__global__ void square_kernel(float *bGPU, float *bsqrGPU, int n){
+// We also collect the squared norm of the vector
+__global__ void square_kernel(float *bGPU, float *bsqrGPU, float *bnorm, int n){
 
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
 	while(idx < n){
 		bsqrGPU[idx] = bGPU[idx] * bGPU[idx];
+		atomicAdd(bnorm, bsqrGPU[idx]);
 		idx += gridDim.x * blockDim.x;
 	}
 }
 
+// Compute the initial values
+__device__ void x0_initialisation(float *aGPU, float *x0_vecGPU, float *bnorm, float gamma, int n){
 
-// Device function for computing the squared norm of a vector
-// using squared coordinates
-__device__ float vector_squared_norm_kernel(float *bsqrGPU, int n){
-	float bnorm=0;
-	for (int i=0; i<n-1; i++){
-		bnorm += bsqrGPU[i];
+	// First eigenvalue
+	float term1 = (gamma-aGPU[0])/2;
+	if (gamma > aGPU[0]){
+		x0_vecGPU[0] = aGPU[0] + term1 +sqrtf(term1 * term1 + bnorm[0]);
 	}
-	return bnorm;
-}
+	else {
+		x0_vecGPU[0] = aGPU[0] + bnorm[0] / (-term1 +sqrtf(term1 * term1 + bnorm[0]));
+	}
 
+	// Interior eigenvalues
+	// We take the middle of the intervals as initial value
+	//(as advised in the paper at the beginning of  page 8 (13 of the pdf)
+	for (int i=1; i<n-1; i++){
+		x0_vecGPU[i] = (aGPU[i-1] + aGPU[i]) / 2 ;
+	}
+
+	// Last eigenvalue
+	float term2 = (gamma-aGPU[n-2])/2;
+	if (gamma > aGPU[n-2]){
+		x0_vecGPU[n-1] = aGPU[n-2] - term2 -sqrtf(term1 * term1 + bnorm[0]);
+	}
+	else {
+		x0_vecGPU[n-1] = (float)aGPU[n-2] - (float)bnorm[0] / (-(float)term2 +(float)sqrtf((float)term2 * (float)term2 + (float)bnorm[0]));
+	}
+}
 
 
 // Device function for computing f (the spectral function) at a given point x
@@ -301,8 +320,9 @@ __device__ float exterior_zero_finder(float *aGPU,
 // Kernal to find the zeros (only the interior ones for now)
 __global__ void find_zeros_kernel(float *aGPU,
 				  float *bsqrGPU,
+					float *bnorm,
+					float *x0_vecGPU,
 				  float *xstar_vecGPU,
-				  float *xvecGPU,
 				  float gamma,
 				  int n,
 				  int maxit,
@@ -310,10 +330,15 @@ __global__ void find_zeros_kernel(float *aGPU,
 
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-		// First eigenvalue
+	/****************** Initialisation ******************/
+	x0_initialisation(aGPU, x0_vecGPU, bnorm, gamma, n);
+	__syncthreads();
+
+	/***************** Root Computation *****************/
+	// First eigenvalue
 	if (idx == 0){
 		// Initial value
-		float x = xvecGPU[idx];
+		float x = x0_vecGPU[idx];
 		// Each core gets an interior interval and finds the unique zero within
 		xstar_vecGPU[idx] = exterior_zero_finder(aGPU, bsqrGPU, gamma, x, idx, n, maxit, epsilon);
 		// In case n - 2 > gridDim.x * blockDim.x
@@ -324,7 +349,7 @@ __global__ void find_zeros_kernel(float *aGPU,
 	// All interior eigenvalues
 	if ((idx>0)&&(idx<n-1)){
 		// Initial value
-		float x = xvecGPU[idx];
+		float x = x0_vecGPU[idx];
 		// Each core gets an interior interval and finds the unique zero within
 		xstar_vecGPU[idx] = interior_zero_finder(aGPU, bsqrGPU, gamma, x, idx, n, maxit, epsilon);
 		// In case n - 2 > gridDim.x * blockDim.x
@@ -335,7 +360,7 @@ __global__ void find_zeros_kernel(float *aGPU,
 	// Last eigenvalue
 	if (idx == n-1){
 		// Initial value
-		float x = xvecGPU[idx];
+		float x = x0_vecGPU[idx];
 		// Each core gets an interior interval and finds the unique zero within
 		xstar_vecGPU[idx] = exterior_zero_finder(aGPU, bsqrGPU, gamma, x, idx, n, maxit, epsilon);
 		// In case n - 2 > gridDim.x * blockDim.x
@@ -376,8 +401,7 @@ int main (void) {
 
 	/****************** Declaration ******************/
 	// Declare vectors or floats
-	float bnorm;
-	float *a, *b, *x0_vec, *xstar_vec, *c;
+	float *a, *b, *xstar_vec, *c;
 
 
 	// Gamma
@@ -400,7 +424,6 @@ int main (void) {
 	a = (float*)malloc((n-1)*sizeof(float));
 	b = (float*)malloc((n-1)*sizeof(float));
 	c = (float*)malloc(n*n*sizeof(float));
-	x0_vec = (float*)malloc(n*sizeof(float));
 	xstar_vec = (float*)malloc(n*sizeof(float));
 
 
@@ -420,61 +443,39 @@ int main (void) {
 	// Start timer
 	Tim.start();
 
-	/****************** Initialisation ******************/
-
-	// Interior values:
-	// We take the middle of the intervals as initial value
-	//(as advised in the paper at the beginning of  page 8 (13 of the pdf)
-	for (int i=1; i<n-1; i++){
-		x0_vec[i] = (a[i-1] + a[i]) / 2 ;
-	}
-
-
-	// Edge values:
-	//Compute square of b first and its squared norm
-	//vector_square(b, bsqr, n);
-	//bnorm = vector_squared_norm(bsqr, n);
-	x0_vec[0] = a[0] + 5;
-	x0_vec[n-1] = a[n-2] - 50;
-
-
-	// Fill c with arrow matrix generated from a and b
-	//generate_arrow(a, b, c, gamma, n);
-
-	// Print c (not very necessary actually)
-	//printf("The arrow matrix : \n");
-	//print_matrix(c, n);
-
+	/***************** GPU memory alloc *****************/
 
 	// Declare vectors on GPU
-	float *aGPU, *bGPU, *bsqrGPU, *x0_vecGPU, *xstar_vecGPU;
+	float *aGPU, *bGPU, *bsqrGPU, *bnorm, *x0_vecGPU, *xstar_vecGPU;
 
 	// Create memory space for vectors on GPU
 	cudaMalloc(&aGPU, (n-1)*sizeof(float));
 	cudaMalloc(&bGPU, (n-1)*sizeof(float));
 	cudaMalloc(&bsqrGPU, (n-1)*sizeof(float));
+	cudaMalloc(&bnorm, (1)*sizeof(float));
 	// The initial values
 	cudaMalloc(&x0_vecGPU, n*sizeof(float));
 	// Container for the results
 	cudaMalloc(&xstar_vecGPU, n*sizeof(float));
 
 
+  /***************** Transfer on GPU *****************/
+	// We first compute the square and squared norm
+	square_kernel <<<1024, 512>>> (bGPU, bsqrGPU, bnorm, n);
 
 	// Transfers on GPU
 	cudaMemcpy(aGPU, a, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(bGPU, b, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(x0_vecGPU, x0_vec, n*sizeof(float), cudaMemcpyHostToDevice);
 
 
-	//Compute square of b on GPU
-	square_kernel <<<1024, 512>>> (bGPU, bsqrGPU, n);
-
-
+	/***************** Root computation ****************/
 	// Find interior zeros on GPU
+	// (it includes initilisation)
 	find_zeros_kernel<<<1024, 512>>> (aGPU,
 					  bsqrGPU,
+						bnorm,
+						x0_vecGPU,
 					  xstar_vecGPU,
-					  x0_vecGPU,
 					  gamma,
 					  n,
 					  maxit,
@@ -516,7 +517,6 @@ int main (void) {
 	free(a);
 	free(b);
 	free(c);
-	free(x0_vec);
 	free(xstar_vec);
 
 }
