@@ -64,10 +64,21 @@ void generate_arrow(float *a, float *b, float *c, float gamma, int n) {
 	c[(n-1) * (n-1)] = gamma;
 }
 
+
+
+// Compute the squre of a vector
+void vector_square(float *b, float *bsqr, int n){
+
+	for (int i=0; i<n-1; i++){
+		bsqr[i] = b[i] * b[i];
+	}
+}
+
+
 // Compute the squared norm of a vector
 // using squared coordinates
 float vector_squared_norm(float *bsqr, int n){
-	float bnorm;
+	float bnorm=0;
 	for (int i=0; i<n-1; i++){
 		bnorm += bsqr[i];
 	}
@@ -75,12 +86,6 @@ float vector_squared_norm(float *bsqr, int n){
 }
 
 
-void vector_square(float *b, float *bsqr, int n){
-
-	for (int i=0; i<n-1; i++){
-		bsqr[i] = b[i] * b[i];
-	}
-}
 
 // Compute the initial value for the first eigenvalue
 float x0_edge_0(float a_0, float bnorm, float gamma){
@@ -324,7 +329,7 @@ int main (void) {
 
 
 	// Size of arrow matrix
-	int n = 10;
+	int n = 1000;
 
 
 	//Maximum number of iterations
@@ -371,8 +376,6 @@ int main (void) {
 
 
 	// Edge values:
-	//x0_vec[0] = a[0] + 5;
-
 	//Compute square of b first and its squared norm
 	vector_square(b, bsqr, n);
 	bnorm = vector_squared_norm(bsqr, n);
@@ -414,7 +417,7 @@ int main (void) {
 	// Number of roots to display
 	int m = 10;
 	printf("\n");
-		printf("********************* RESULTS ********************** \n");
+	printf("********************* RESULTS ********************** \n");
 	printf("The first %i greater resulting roots (eigen values) are : \n", m);
 	print_vector(xstar_vec, m, n);
 
