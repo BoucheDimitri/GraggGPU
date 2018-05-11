@@ -378,15 +378,15 @@ __global__ void initialize_x0_kernel(float *aGPU, float *x0_vecGPU, float *bnorm
 
 
 // Kernel to find the zeros (only the interior ones for now)
-__global__ void find_zeros_kernel_bis(float *aGPU,
-				      float *bsqrGPU,
-				      float *bnorm,
-				      float *x0_vecGPU,
-				      float *xstar_vecGPU,
-				      float gamma,
-				      int n,
-				      int maxit,
-				      float epsilon) {
+__global__ void find_zeros_kernel(float *aGPU,
+				  float *bsqrGPU,
+				  float *bnorm,
+				  float *x0_vecGPU,
+				  float *xstar_vecGPU,
+				  float gamma,
+				  int n,
+				  int maxit,
+				  float epsilon) {
 
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -465,7 +465,7 @@ int main (void) {
 
 
 	// Fill the vectors a and b (arbitrarily for now)
-	for (int i=0; i<n; i++){
+	for (int i=0; i<n-1; i++){
 		a[i] = 2 * n - i;
 	}
 
@@ -499,12 +499,9 @@ int main (void) {
 	cudaMemcpy(aGPU, a, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(bGPU, b, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
 
+
 	// We first compute the square and squared norm
 	square_kernel <<<1024, 512>>> (bGPU, bsqrGPU, bnorm, n);
-
-	// Transfers on GPU
-	//cudaMemcpy(aGPU, a, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
-	//cudaMemcpy(bGPU, b, (n-1)*sizeof(float), cudaMemcpyHostToDevice);
 
 
 	// Initialization of x0 on GPU
@@ -515,15 +512,15 @@ int main (void) {
 	/***************** Root computation ****************/
 	// Find interior zeros on GPU
 	// (it includes initilisation)
-	find_zeros_kernel_bis<<<1024, 512>>> (aGPU,
-					      bsqrGPU,
-					      bnorm,
-					      x0_vecGPU,
-					      xstar_vecGPU,
-					      gamma,
-					      n,
-					      maxit,
-					      epsilon);
+	find_zeros_kernel<<<1024, 512>>> (aGPU,
+					  bsqrGPU,
+					  bnorm,
+					  x0_vecGPU,
+					  xstar_vecGPU,
+					  gamma,
+					  n,
+					  maxit,
+					  epsilon);
 
 
 	// Transfer results on CPU to print it
@@ -559,12 +556,14 @@ int main (void) {
 	cudaFree(x0_vecGPU);
 	cudaFree(xstar_vecGPU);
 
-
+	//printf("a"); 
 	// Free memory on CPU
 	free(a);
 	free(b);
+	printf("c"); 
 	free(c);
 	//free(x0_vec);
-	free(xstar_vec);
+	printf("xstart"); 
+	//free(xstar_vec);
 
 }
