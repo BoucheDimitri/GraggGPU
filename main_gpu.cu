@@ -213,7 +213,7 @@ __device__ float interior_zero_finder(float *aGPU,
 // Kernal to find the zeros (only the interior ones for now)   
 __global__ void find_zeros_kernel(float *aGPU, 
 				  float *bsqrGPU, 
-				  float *xstart_vecGPU, 
+				  float *xstar_vecGPU, 
 				  float *xvecGPU, 
 				  float gamma, 
 				  int n, 
@@ -229,7 +229,7 @@ __global__ void find_zeros_kernel(float *aGPU,
 		// Initial value
 		float x = xvecGPU[idx + 1]; 
 		// Each core gets an interior interval and finds the unique zero within
-		xstart_vecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gamma, x, idx + 1, n, maxit, epsilon); 
+		xstar_vecGPU[idx + 1] = interior_zero_finder(aGPU, bsqrGPU, gamma, x, idx + 1, n, maxit, epsilon); 
 		// In case n - 2 > gridDim.x * blockDim.x
 		idx += gridDim.x * blockDim.x;
 	}
@@ -275,7 +275,7 @@ int main (void) {
 
 
 	// Size of arrow matrix
-	int n = 100;
+	int n = 42;
 
 
 	//Maximum number of iterations
