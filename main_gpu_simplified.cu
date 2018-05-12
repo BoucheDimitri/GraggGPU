@@ -18,6 +18,12 @@ else if (*x > *y) return -1;
 return 0;
 }
 
+void positive_part_vec(float *v, int n){
+	for (int i = 0; i<n; i++){
+	
+		v[i] = max((float)0, v[i]);
+	}
+}
 
 // Generate gaussian vector using Box Muller
 void gaussian_vector(float *v, float mu, float sigma, int n){
@@ -244,7 +250,8 @@ __device__ float interior_zero_finder(float *aGPU,
 			   	      int k,
 			   	      int n,
 			   	      int maxit,
-			   	      float epsilon){
+			   	      float epsilon){ 
+				      //float cut_tolerance){
 
 	int i = 0;
 	// To guarantee entry in the loop
@@ -467,11 +474,11 @@ int main (void) {
 	printf("n = %d\n", n);
 
 	//Maximum number of iterations
-	int maxit = 1e5;
+	int maxit = 1e4;
 
 
 	//Stopping criterion
-	float epsilon = 0.000001;
+	float epsilon = 0.0001;
 
 
 	// Memory allocation
@@ -487,21 +494,26 @@ int main (void) {
 
 
 	// Fill the vectors a and b (arbitrarily for now)
-	//for (int i=0; i<n-1; i++){
-	//	a[i] = 0.5 * n - 0.1 * i;
-	//}
+	for (int i=0; i<n-1; i++){
+		a[i] = 0.5 * n - 0.1 * i;
+	}
 
 	// Fill a as a vector of gaussian of mean mu and std sigma 
-	float mu = 50;
-	float sigma = 1;
-	gaussian_vector(a, mu, sigma, n-1);
+	//float mua = 0.5 * n;
+	//float sigmaa = 0.05 * n;
+	//gaussian_vector(a, mua, sigmaa, n-1);
 	// We sort by descending order then
-	qsort(a, n-1, sizeof(float), compare_function);
+	//qsort(a, n-1, sizeof(float), compare_function);
 	
 
-	for (int i=0; i<n-1; i++){
-		b[i] = 1;
-	}
+	//for (int i=0; i<n-1; i++){
+	//	b[i] = 40;
+	//}
+
+	float mub = 5;
+	float sigmab = 1;
+	gaussian_vector(b, mub, sigmab, n-1);
+	positive_part_vec(b, n-1);
 
 	// Start timer
 	Tim.start();
