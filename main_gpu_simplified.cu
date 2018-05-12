@@ -9,18 +9,18 @@ Lokman A. Abbas-Turki
 #include "timer.h"
 
 
-// Compare function for qsort 
+// Compare function for qsort
 int compare_function(const void *a,const void *b) {
 	float *x = (float *) a;
 	float *y = (float *) b;
 if (*x < *y) return 1;
-else if (*x > *y) return -1; 
+else if (*x > *y) return -1;
 return 0;
 }
 
 void positive_part_vec(float *v, int n){
 	for (int i = 0; i<n; i++){
-	
+
 		v[i] = max((float)0, v[i]);
 	}
 }
@@ -31,7 +31,7 @@ void gaussian_vector(float *v, float mu, float sigma, int n){
 		float u1 = (float)rand()/(float)(RAND_MAX);
 		float u2 = (float)rand()/(float)(RAND_MAX);
 		v[i] = sigma * (sqrtf( -2 * logf(u1)) * cosf(2 * M_PI * u2)) + mu;
-	} 
+	}
 }
 
 
@@ -189,12 +189,12 @@ __device__ float first_alpha(float x, float *aGPU, float *bsqrGPU, int n){
 	float a0 = aGPU[0];
 
 	for (int i=1; i<n-1; i++) {
-		float ai = aGPU[i]; 
+		float ai = aGPU[i];
 		sum += (bsqrGPU[i]*(a0-ai))/((x-ai)*(x-ai)*(x-ai));
 	}
 
 	return -(1+sum)/(x-a0);
-	
+
 }
 
 
@@ -204,7 +204,7 @@ __device__ float last_alpha(float x, float *aGPU, float *bsqrGPU, int n){
 	float a_nminus2 = aGPU[n-2];
 
 	for (int i=0; i<n-2; i++) {
-		float ai = aGPU[i]; 
+		float ai = aGPU[i];
 		sum += (bsqrGPU[i]*(a_nminus2 - ai)) / ((x - ai)*(x - ai)*(x - ai));
 	}
 
@@ -250,7 +250,7 @@ __device__ float interior_zero_finder(float *aGPU,
 			   	      int k,
 			   	      int n,
 			   	      int maxit,
-			   	      float epsilon){ 
+			   	      float epsilon){
 				      //float cut_tolerance){
 
 	int i = 0;
@@ -285,12 +285,12 @@ __device__ float interior_zero_finder(float *aGPU,
 
 
 __device__ float first_zero_finder(float *aGPU,
-			   	   float *bsqrGPU,
-			   	   float gamma,
-			           float x,
-			   	   int n,
-				   int maxit,
-				   float epsilon){
+	                                 float *bsqrGPU,
+																	 float gamma,
+																	 float x,
+																	 int n,
+																	 int maxit,
+																	 float epsilon){
 
 	int i = 0;
 	float a0 = aGPU[0];
@@ -312,12 +312,12 @@ __device__ float first_zero_finder(float *aGPU,
 		x -= delta;
 		i ++;
 	}
-	
+
 	// We print a control to check the quality of the root obtained
 	printf("\n");
 		printf("********************* CONTROLS ********************* \n");
 		printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
-	
+
 	printf("eigenvalue %d: %f, with spectral function %f after %d iterations \n"
 	, 0, x, f*f, i);
 
@@ -368,7 +368,7 @@ __global__ void initialize_x0_kernel(float *aGPU, float *x0_vecGPU, float *bnorm
 
 	// Initial x0 for first interval
 	if (idx == 0) {
-		float a0_local = aGPU[0]; 
+		float a0_local = aGPU[0];
 		float bnorm0_local = bnorm[0];
 		float term1 = (gamma - a0_local)/2;
 		if (gamma > a0_local){
@@ -384,7 +384,7 @@ __global__ void initialize_x0_kernel(float *aGPU, float *x0_vecGPU, float *bnorm
 		float aGPUnminus2_local = aGPU[n-2];
 		float bnorm0_local = bnorm[0];
 		float term2 = (gamma - aGPUnminus2_local)/2;
-		float a0_local = aGPU[0]; 
+		float a0_local = aGPU[0];
 		float term1 = (gamma - a0_local)/2;
 		if (gamma > aGPUnminus2_local){
 			x0_vecGPU[n-1] = aGPUnminus2_local - term2 - sqrtf(term1 * term1 + bnorm0_local);
@@ -395,12 +395,12 @@ __global__ void initialize_x0_kernel(float *aGPU, float *x0_vecGPU, float *bnorm
 		}
 	}
 
-	// Interior intervals	
+	// Interior intervals
 	else {
 		while (idx < n) {
 			x0_vecGPU[idx - 1] = (aGPU[idx - 2] + aGPU[idx - 1]) / 2 ;
 			idx += gridDim.x * blockDim.x;
-		}	
+		}
 	}
 }
 
@@ -429,7 +429,7 @@ __global__ void find_zeros_kernel(float *aGPU,
 		// In case n - 2 > gridDim.x * blockDim.x : USELESS
 		//idx += gridDim.x * blockDim.x;
 	}
-	
+
 	// Last eigenvalue
 	else if (idx == 1) {
 		// Initial value
@@ -462,12 +462,12 @@ int main (void) {
 
 
 	// Gamma
-	float gamma = 10;
+	float gamma = 1;
 
 
 	// Size of arrow matrix chosen by the user
 	//int n= 10;
-	int n; 
+	int n;
 	printf("\nWhich n (number of roots for the function) do you want? \n");
 	scanf("%d", &n);
 	printf("\n \n******************* CHOICE OF N ******************** \n");
@@ -495,25 +495,25 @@ int main (void) {
 
 	// Fill the vectors a and b (arbitrarily for now)
 	for (int i=0; i<n-1; i++){
-		a[i] = 0.5 * n - 0.1 * i;
+		a[i] = 2 * n - i;
 	}
 
-	// Fill a as a vector of gaussian of mean mu and std sigma 
+	// Fill a as a vector of gaussian of mean mu and std sigma
 	//float mua = 0.5 * n;
 	//float sigmaa = 0.05 * n;
 	//gaussian_vector(a, mua, sigmaa, n-1);
 	// We sort by descending order then
 	//qsort(a, n-1, sizeof(float), compare_function);
-	
 
-	//for (int i=0; i<n-1; i++){
-	//	b[i] = 40;
-	//}
 
-	float mub = 5;
-	float sigmab = 1;
-	gaussian_vector(b, mub, sigmab, n-1);
-	positive_part_vec(b, n-1);
+	for (int i=0; i<n-1; i++){
+		b[i] = n-i;
+	}
+
+	//float mub = 5;
+	//float sigmab = 1;
+	//gaussian_vector(b, mub, sigmab, n-1);
+	//positive_part_vec(b, n-1);
 
 	// Start timer
 	Tim.start();
@@ -548,7 +548,7 @@ int main (void) {
 
 	// Initialization of x0 on GPU
 	initialize_x0_kernel<<<1024, 512>>> (aGPU, x0_vecGPU, bnorm, gamma, n);
-	
+
 
 
 	/***************** Root computation ****************/
@@ -598,14 +598,14 @@ int main (void) {
 	cudaFree(x0_vecGPU);
 	cudaFree(xstar_vecGPU);
 
-	//printf("a"); 
+	//printf("a");
 	// Free memory on CPU
 	free(a);
 	free(b);
-	printf("c"); 
+	printf("c");
 	free(c);
 	//free(x0_vec);
-	printf("xstart"); 
+	printf("xstart");
 	//free(xstar_vec);
 
 }
