@@ -1,10 +1,32 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 
 /**************************************************************
 The code in time.h is a part of a course on cuda taught by its authors:
 Lokman A. Abbas-Turki
 **************************************************************/
 #include "timer.h"
+
+
+// Compare function for qsort 
+int compare_function(const void *a,const void *b) {
+	float *x = (float *) a;
+	float *y = (float *) b;
+if (*x < *y) return 1;
+else if (*x > *y) return -1; 
+return 0;
+}
+
+
+// Generate gaussian vector using Box Muller
+void gaussian_vector(float *v, float mu, float sigma, int n){
+	for (int i = 0; i<n; i++){
+		float u1 = (float)rand()/(float)(RAND_MAX);
+		float u2 = (float)rand()/(float)(RAND_MAX);
+		v[i] = sigma * (sqrtf( -2 * logf(u1)) * cosf(2 * M_PI * u2)) + mu;
+	} 
+}
 
 
 //Function to print a small square matrix of floats on host
@@ -217,7 +239,7 @@ __device__ float interior_delta(float f, float alpha, float beta){
 // device function to find the zero within the interval (a[k], a[k-1])
 __device__ float interior_zero_finder(float *aGPU,
 			   	      float *bsqrGPU,
-			          float gamma,
+			              float gamma,
 			   	      float x,
 			   	      int k,
 			   	      int n,
@@ -433,7 +455,7 @@ int main (void) {
 
 
 	// Gamma
-	float gamma = 1;
+	float gamma = 10;
 
 
 	// Size of arrow matrix chosen by the user
@@ -465,12 +487,20 @@ int main (void) {
 
 
 	// Fill the vectors a and b (arbitrarily for now)
-	for (int i=0; i<n-1; i++){
-		a[i] = 2 * n - i;
-	}
+	//for (int i=0; i<n-1; i++){
+	//	a[i] = 0.5 * n - 0.1 * i;
+	//}
+
+	// Fill a as a vector of gaussian of mean mu and std sigma 
+	float mu = 50;
+	float sigma = 1;
+	gaussian_vector(a, mu, sigma, n-1);
+	// We sort by descending order then
+	qsort(a, n-1, sizeof(float), compare_function);
+	
 
 	for (int i=0; i<n-1; i++){
-		b[i] = n - i;
+		b[i] = 1;
 	}
 
 	// Start timer
