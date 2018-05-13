@@ -205,6 +205,131 @@ __device__ float initialization_ext(float *dGPU, float *zsqrGPU, float *znorm, f
 }
 
 
+__device__ float a_gragg(float f, float fprime, float delta_k, float delta_kplus1){
+
+    return (delta_k + delta_kplus1) * f - delta_k * delta_kplus1 * fprime;
+
+}
+
+
+__device__ float b_gragg(float f, float delta_k, float delta_kplus1){
+
+    return delta_k * delta_kplus1 * f;
+}
+
+
+__device__ float c_gragg(float f, float fprime, float fsecond, float delta_k, float delta_kplus1){
+
+    return f - (delta_k + delta_kplus1) * fprime + delta_k * delta_kplus1 * fsecond / 2.0;
+
+}
+
+
+__device__ float eta_int(float d_k, float d_kplus1, float f, float fprime, float fsecond, float x, int k, int n){
+
+    float delta_k = d_k - x;
+    float delta_kplus1 = d_kplus1 - x;
+    float a = a_gragg(f, fprime, delta_k, delta_kplus1);
+    float b = b_gragg(f, delta_k, delta_kplus1);
+    float c = c_gragg(f, fprime, fsecond, delta_k, delta_kplus1);
+    float eta = discrimant_int(a, b, c);
+    return eta;
+}
+
+
+__device__ float eta_ext(float d_nminus2, float d_nminus1, float f, float fprime, float fsecond, float x, int n){
+
+    float delta_nminus2 = d_nminus2 - x;
+    float delta_nminus1 = d_nminus1 - x;
+    float a = a_gragg(f, fprime, delta_nminus2, delta_nminus1);
+    float b = b_gragg(f, d_nminus2, delta_nminus1);
+    float c = c_gragg(f, fprime, fsecond, d_nminus2, delta_nminus1);
+    float eta = discrimant_ext(a, b, c);
+    return eta;
+}
+
+
+__device__ float find_root_int(float *dGPU, float *zsqrGPU, float rho, float x, int k, int n, int maxit, float epsilon){
+
+    int i = 0;
+    float d_k = dGPU[k];
+    float d_kplus1 = dGPU[k + 1];
+    // To guarantee entry in the loop
+    float f = 1000 * epsilon;
+
+    // while ((i < maxit) && (f*f > epsilon)){
+    //while ((i < maxit) && (fabs(f) > epsilon)){
+    while (i < maxit) {//&& (fabs(f) > epsilon)){
+        printf("\n INNNNNNNNNN \n");
+        float f = secfunc(dGPU, zsqrGPU, rho, x, n);
+        float fprime = secfunc_prime(dGPU, zsqrGPU, x, n);
+        float fsecond = secfunc_second(dGPU, zsqrGPU, x, n);
+        float eta = eta_int(d_k, d_kplus1, f, fprime, fsecond, x, k, n);
+        x += eta;
+        i ++;
+    }
+
+    if (k == 0){
+        printf("\n");
+        printf("********************* CONTROLS ********************* \n");
+        printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
+    }
+
+    if (k%(int)(n/10) == 0){
+        printf("eigenvalue %d: %f, with spectral function %f after %d iterations \n", k, x, f, i);
+    }
+
+    return x;
+}
+
+
+__device__ float find_root_ext(float *dGPU, float *zsqrGPU, float rho, float x, int n, int maxit, float epsilon){
+
+    int i = 0;
+    float d_nminus2 = dGPU[n - 2];
+    float d_nminus1 = dGPU[n - 1];
+    // To guarantee entry in the loop
+    float f = 1000 * epsilon;
+
+    //while ((i < maxit) && (f*f > epsilon)){
+    //while ((i < maxit) && (fabs(f) > epsilon)){
+    while (i < maxit) {//&& (fabs(f) > epsilon)){
+        printf("\n INNNNNNNNNN \n");
+        float f = secfunc(dGPU, zsqrGPU, rho, x, n);
+        float fprime = secfunc_prime(dGPU, zsqrGPU, x, n);
+        float fsecond = secfunc_second(dGPU, zsqrGPU, x, n);
+        float eta = eta_ext(d_nminus2, d_nminus1, f, fprime, fsecond, x, n);
+        x += eta;
+        i ++;
+    }
+
+    // Print the last eigen value
+    printf("eigenvalue %d: %f, with spectral function %f after %d iterations \n", n, x, f, i);
+    return x;
+}
+
+
+__global__ void find_roots_kernel(float *xstarGPU, float *dGPU, float *zsqrGPU, float *znorm, float rho, int n, int maxit, int epsilon){
+
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx == 0){
+        float x = initialization_ext(dGPU, zsqrGPU, znorm, rho,  n);
+        printf("%f \n", x);
+        xstarGPU[n - 1] = find_root_ext(dGPU, zsqrGPU, rho, x, n, maxit, epsilon);
+    }
+
+    else {
+        while (idx < n) {
+            float x = initialization_int(dGPU, zsqrGPU, rho, idx - 1, n);
+            xstarGPU[idx - 1] = find_root_int(dGPU, zsqrGPU, rho, x, idx - 1, n, maxit, epsilon);
+          	idx += gridDim.x * blockDim.x;
+        }
+    }
+}
+
+
+
+
 __global__ void initialize_x0_kernel(float *x0GPU, float *dGPU, float *zsqrGPU, float *znorm, float rho, int n){
 
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -223,11 +348,13 @@ __global__ void initialize_x0_kernel(float *x0GPU, float *dGPU, float *zsqrGPU, 
 
 
 
+
+
 int main (void) {
 
 	/****************** Declaration ******************/
 	// Declare vectors or floats
-	float *d, *z, *xstar, *x0 ;
+	float *d, *z, *xstar;
 
 
 	// Gamma
@@ -247,14 +374,13 @@ int main (void) {
 
 
 	//Stopping criterion
-	float epsilon = 0.0001;
+	float epsilon = 1e-10;
 
 
 	// Memory allocation
 	d = (float*)malloc(n*sizeof(float));
 	z = (float*)malloc(n*sizeof(float));
 	xstar = (float*)malloc(n*sizeof(float));
-  x0 = (float*)malloc(n*sizeof(float));
 
 
 	// Create instance of class Timer
@@ -266,6 +392,9 @@ int main (void) {
 		d[i] = 2 * n - i;
 	}
 
+  qsort(d, n, sizeof(float), compare_function);
+
+  print_vector(d, 10, n);
 	// Fill a as a vector of gaussian of mean mu and std sigma
 	//float mu_d = 0.5 * n;
 	//float sigma_d = 0.05 * n;
@@ -284,19 +413,17 @@ int main (void) {
 	//positive_part_vec(b, n-1);
 
 	// Start timer
-	//Tim.start();
+	Tim.start();
 
 	/***************** GPU memory alloc *****************/
 
 	// Declare vectors on GPU
-	float *dGPU, *zsqrGPU, *znorm, *x0GPU, *xstarGPU;
+	float *dGPU, *zsqrGPU, *znorm, *xstarGPU;
 
 	// Create memory space for vectors on GPU
 	cudaMalloc(&dGPU, n*sizeof(float));
 	cudaMalloc(&zsqrGPU, n*sizeof(float));
 	cudaMalloc(&znorm, sizeof(float));
-	// The initial values
-	cudaMalloc(&x0GPU, n*sizeof(float));
 	// Container for the results
 	cudaMalloc(&xstarGPU, n*sizeof(float));
 
@@ -314,58 +441,39 @@ int main (void) {
 
 
 	// Initialization of x0 on GPU
-	initialize_x0_kernel <<<1024, 512>>> (x0GPU, dGPU, zsqrGPU, znorm, rho, n);
+	//initialize_x0_kernel <<<1024, 512>>> (x0GPU, dGPU, zsqrGPU, znorm, rho, n);
 
 
 
 	/***************** Root computation ****************/
-	// Find interior zeros on GPU
-	// (it includes initilisation)
-	//find_zeros_kernel<<<1024, 512>>> (aGPU,
-					  // bsqrGPU,
-					  // bnorm,
-					  // x0_vecGPU,
-					  // xstar_vecGPU,
-					  // gamma,
-					  // n,
-					  // maxit,
-					  // epsilon);
+  // Find roots on GPU
+  find_roots_kernel <<<1024, 512>>> (xstarGPU, dGPU, zsqrGPU, znorm, rho, n, maxit, epsilon);
 
 
 	// Transfer results on CPU to print it
 	cudaMemcpy(xstar, xstarGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
 
-  cudaMemcpy(x0, x0GPU, n*sizeof(float), cudaMemcpyDeviceToHost);
+	// End timer
+	Tim.add();
 
-  print_vector(x0, 10, n);
+	// Print the first zeros
+	// Number of roots to display
+	int m = 10;
+	printf("\n********************* RESULTS ********************** \n");
+	printf("The first %i greater resulting roots (eigen values) are : \n", m);
+	print_vector(xstar, m, n);
 
-	//cudaMemcpy(x0_vec, x0_vecGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
 
+	// Print how long it took
+	printf("GPU timer for root finding (CPU-GPU and GPU-CPU transfers included) : %f s\n\n", (float)Tim.getsum());
 
-	// // End timer
-	// Tim.add();
-  //
-  //
-	// // Print the first zeros
-	// // Number of roots to display
-	// int m = 10;
-	// printf("\n********************* RESULTS ********************** \n");
-	// printf("The first %i greater resulting roots (eigen values) are : \n", m);
-	// print_vector(xstar, m, n);
-  //
-  //
-	// // Print how long it took
-	// printf("GPU timer for root finding (CPU-GPU and GPU-CPU transfers included) : %f s\n\n",
-	// 	(float)Tim.getsum());
-  //
-	// //print_vector(x0_vec, 10, n);
-  //
+	//print_vector(x0_vec, 10, n);
+
 
 
 	// Free memory on GPU
 	cudaFree(dGPU);
 	cudaFree(zsqrGPU);
-	cudaFree(x0GPU);
 	cudaFree(xstarGPU);
 
 	// Free memory on CPU
