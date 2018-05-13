@@ -1,0 +1,8 @@
+# Untrack pycharm projects files
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.log
+*.xml
+*.gz
