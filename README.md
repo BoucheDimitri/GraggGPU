@@ -3,7 +3,7 @@
 ## Presentation of the different files
 
 #### Testing the different algorithms/ technologies individually
-**main_cpu_double.cu**: *CPU is used, with a double precision* to compute the n roots of a secular equation, n being given by the user. 
+**main_cpu_double.cu**: *CPU is used, with a double precision* to compute the n roots of a secular equation, n being given by the user. <\br>
 **main_cpu_float.cu**: *CPU is used, with a single precision* to compute the n roots of a secular equation, n being given by the user. 
 **main_gpu_double.cu**: *GPU is used, with a single precision* to compute the n roots of a secular equation, n being given by the user. 
 
