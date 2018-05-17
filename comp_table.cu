@@ -607,7 +607,7 @@ int main (void) {
 
 
     // Size of arrow matrix chosen by the user
-    int n, nlow, nhigh, step, niter;
+    int n, nlow, nhigh, step, niter, choice;
     printf("\nLowest n to test? \n");
     scanf("%d", &nlow);
     printf("\nHighest n to test? \n");
@@ -616,8 +616,10 @@ int main (void) {
     scanf("%d", &step);
     printf("\nNumber of iterations of the same n to avoid stochastic error? \n");
     scanf("%d", &niter);
+    printf("\nDo you wish to test both algorithms (type 1) or GPU only (type 0)\n");
+    scanf("%d", &choice);
     printf("\n \n******************* CHOICE OF N ******************** \n");
-    printf("We compare the algorithms every %d n, for n between %d and %d \n", step, nlow, nhigh);
+    printf("We compare the chosen algorithms every %d n, for n between %d and %d \n", step, nlow, nhigh);
     printf("Each test is repeated %d times \n\n", niter);
     printf("\n \n********************** TESTS *********************** \n");
 
@@ -736,31 +738,32 @@ int main (void) {
         /*************************************************************************
         ********************************* CPU ************************************
         *************************************************************************/
+        if (choice ==1){
+          // Start timer CPU
+          TimC.start();
 
-        // Start timer CPU
-        TimC.start();
+          // We first compute the square and squared norm
+          square_vector(zsqr, znorm, n);
 
-        // We first compute the square and squared norm
-        square_vector(zsqr, znorm, n);
-
-        // Initialization of x0
-        initialize_x0(x0, d, zsqr, znorm, rho, n);
+          // Initialization of x0
+          initialize_x0(x0, d, zsqr, znorm, rho, n);
 
 
-        /***************** Root computation ****************/
-        // Find roots
-        find_roots(xstar, x0, d, zsqr, znorm, rho, n, maxit, epsilon, loss_CPU);
+          /***************** Root computation ****************/
+          // Find roots
+          find_roots(xstar, x0, d, zsqr, znorm, rho, n, maxit, epsilon, loss_CPU);
 
-        // End timer
-        TimC.add();
-          // Print how long it took
-        fprintf(f, "%d;%d;%d;%f;%f;%f;%f\n", n, iter, niter, (float)TimG.getsum(), (float)TimC.getsum(), *loss_GPU, *loss_CPU);
+          // End timer
+          TimC.add();
+        }
+        // Record the performance
+      fprintf(f, "%d;%d;%d;%f;%f;%f;%f\n", n, iter, niter, (float)TimG.getsum(), (float)TimC.getsum(), *loss_GPU, *loss_CPU);
 
-        // Free memory used for computation on CPU
-        free(znorm);
-        free(xstar);
-        free(loss_CPU);
-        free(loss_GPU);
+      // Free memory used for computation on CPU
+      free(znorm);
+      free(xstar);
+      free(loss_CPU);
+      free(loss_GPU);
       }
 
     printf("%d has been tested\n", n);
