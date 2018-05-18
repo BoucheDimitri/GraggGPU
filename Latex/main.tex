@@ -1,0 +1,176 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[backend=bibtex]{biblatex}
+\addbibresource{biblio.bib}
+
+\usepackage[utf8]{inputenc}
+\usepackage[french]{babel}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+
+%----------------------------------------------------------------------------------------
+%	TITLE SECTION
+%----------------------------------------------------------------------------------------
+
+\newcommand{\horrule}[1]{\rule{\linewidth}{#1}} % Create horizontal rule command with 1 argument of height
+
+\title{	
+\normalfont \normalsize 
+%\textsc{ENSAE} \\ [25pt] % Your university, school and/or department name(s)
+\horrule{0.5pt} \\[0.4cm] % Thin top horizontal rule
+\huge {Solving Secular Equations stably and Efficiently} \\ % The assignment title
+\horrule{2pt} \\[0.5cm] % Thick bottom horizontal rule
+\date{\vspace{-5ex}}
+}
+
+\author{Dimitri Bouche, Gauthier Schweitzer} % Your name
+
+
+\begin{document}
+\maketitle
+
+\section{Problem presentation}
+Our objective is to solve the following secular equation :
+
+\begin{equation}
+\label{secular}
+f(x) = \rho + \sum_{i=1}^n \frac{\zeta_i^2}{\delta_i - x}
+\end{equation}
+
+Its roots correspond the eigenvalues of a diagonal matrix $D = diag(\delta_1,...\delta_n) $ with a rank-1 perturbation:
+$$ D + \frac{zz^T}{\rho}$$
+
+We set $z = (\zeta_1,...\zeta_n)$. Without loss of generality, we assume that $(\delta_1,...\delta_n)$ is such that $$\delta_1<\delta_2<...<\delta_n$$ and every $\zeta_i \neq 0$. \\
+
+$f$ has $n$ roots, $n - 1$ are in $[\delta_k, \delta_{k+1}]$ while one is in $[\delta_n, + \infty]$ (if $\rho >0$ and we can assume it without loss of generality). The purpose of our work is to find numerically these roots by using Gragg's aglorithm. All of our formulas are derived from \cite{1}.
+We will first present the algorithm and the main formulas that we have been using. After that, we will discuss its implementation using CUDA. Finally, we will show some results comparing the performance of the following procedure on CPU or on GPU.
+
+
+\section{Algorithm}
+
+\subsection{Iteration Formulas}
+\subsubsection{Interior roots}
+En se plaçant à un $y$ donné, cherche à résoudre une équation du second degré ayant pour inconnu $\eta$ afin que $y + \eta$ soit plus proche de la racine que l'on cherche que $y$. 
+En posant : 
+$$ \Delta_k = \delta_k - y$$ 
+$$ \Delta_ {k+1} = \delta_{k+1} - y$$ 
+$$ a = (\Delta_k + \Delta_{k+1}) f(y) - \Delta_k \Delta_{k+1}f'(y)$$
+$$ b = \Delta_k \Delta_{k+1} f(y)$$
+
+$\eta$ est donné par : 
+
+\begin{eqnarray}\label{discri1}
+\eta = \frac{a - \sqrt{a^2 - 4bc}}{2c}~~ si~~ a \leq 0 \\
+\eta = \frac{2b}{a + \sqrt{a^2 - 4bc}}~~ si~~ a > 0
+\end{eqnarray}
+
+\paragraph{Tiré de la section 3.3 page 15}:
+
+\paragraph{}
+$c$ est un degré de liberté qui nous est donné pour l'interpolation. Dans le cas de l'algorithme de Gragg, $c$ est choisi tel que l'interpolation rationnelle de la fonction séculaire en $y$ coïncide aussi avec la dérivée seconde de cette dernière en ce même point. La formule pour $c$ est alors : 
+
+\begin{equation}\label{c_gragg}
+c = f(y) - (\Delta_k + \Delta_{k+1}) f'(y) + \Delta_k \Delta_{k+1} \frac{f''(y)}{2}
+\end{equation}
+
+\paragraph{}
+En mettant ensemble (\ref{discri1}) et (\ref{c_gragg}), on peut donc calculer $\eta$, reste à incrémenter $y$ en lui ajoutant $\eta$. C'est la formule d'itération de Gragg pour les racines intérieures.
+
+
+\subsubsection{Exterior root ($k=n$)}
+
+Il faut adapter un peu la précédente procédure. On garde la même interpolation que pour $k=n-1$ donc ;
+
+$$ \Delta_{n-1} = \delta_{n-1} - y$$ 
+$$ \Delta_n = \delta_n - y$$ 
+$$ a = (\Delta_{n-1} + \Delta_n) f(y) - \Delta_{n-1} \Delta_nf'(y)$$
+$$ b = \Delta_{n-1} \Delta_n f(y)$$
+$$c = f(y) - (\Delta_{n-1} + \Delta_n) f'(y) + \Delta_{n-1} \Delta_n \frac{f''(y)}{2}$$
+
+Sauf que $\eta$ est donnée par une version modifiée de (\ref{discri1}) : 
+
+\begin{eqnarray}\label{discri2}
+\eta = \frac{a + \sqrt{a^2 - 4bc}}{2c}~~ si~~ a \geq 0 \\
+\eta = \frac{2b}{a - \sqrt{a^2 - 4bc}}~~ si~~ a < 0
+\end{eqnarray}
+
+\paragraph{}
+On peut là aussi calculer $\eta$ et ainsi l'ajouter à $y$ pour se rapprocher de la racine.
+
+
+\subsection{Initilization}
+
+\subsubsection{Educated guess}
+In the article, the authors suggest initial values and give theoretical reasons why they should lead to a nice convergence rate.
+Choix des valeurs initiales : section 4 - Initial guesses pages 18 - 19 - 20
+\paragraph{Interior roots}
+Pour les racines intérieures : voir fin de la page 19 et formules (42), (43) et (44).
+
+\paragraph{Exterior root ($k=n$)}
+Pour la racine extérieure voir la page 21 (notamment partie avec la distinction de cas et les formules (46) et (47)).
+
+\subsubsection{Random guess}
+We also also tried a method consisting in randomly picking a number between the two poles. On the exterior part, the upper bound of the space on which we draw randomly is the same as the one given in the paper.
+
+\section{Implementation in C}
+We have developped two main algorithms, one using the CPU and one using the GPU
+
+\subsection{CPU}
+We won't go very deep into details for this implementation. One should however mention that we have built two sub-algorithms using CPU. The first one uses \textit{float} variables while the second one has double precision and uses \textit{double}. We will see in the results part that these specificities have strong implications, both for the running time and for the precision of the estimated roots.
+
+\subsection{GPU}
+\paragraph{Why using a GPU}
+Secular equations solving is a task that has two features that make it very interesting for GPU computing:
+\begin{itemize}
+    \item it requires important computational power;
+    \item it is by essence highly parallelizable. 
+\end{itemize}
+The second point is more interesting to discuss. To solve secular questions, one has to solve $n$ different problems, each one corresponding to the computation of one root. All of these subproblems are independent since one does not need the root on one interval to compute a root on another one. Therefore, it appears natural to parallelize these computations. Actually, parallelization goes even further.\\
+
+\paragraph{\_\_global\_\_ functions} We have three distinct kernels, each of them corresponding to a task to parallelize. These kernels are launched one after another:
+\begin{enumerate}
+    \item The first kernel \textit{square\_kernel} computes the square of each $\zeta_i$ and the squared norm of the $\zeta$ vector. It uses a standard grid dimension $<<1024,512>>$ to take full profit of the NVIDIA 1080 GPU. Therefore, each thread is computing the square of one coordinate and is doing an AtomicAdd (to prevent concurrent writing) to obtain the square;
+    \item The second kernel \textit{initialize\_x0\_kernel} is used to initialize the root-finding process on each of the intervals. Therefore, each thread has a given interval on which it performs calculations to set the initial value of $\lambda$. Once more, the grid is $<<1024,512>>$;
+    \item Finally, the last kernel is the main one \textit{find\_roots\_kernel}. Starting from the different inital values, it performs Gragg's algorithm to obtain the roots. As explained, each thread computes one root. Grid size is $<<1024,512>>$. 
+\end{enumerate}
+
+\paragraph{Other functions} The rest of the functions that we are using are either standard host functions (called from the host to be performed on the host), or $\_\_device\_\_$ ones (called from the device to be performed on the device). 
+
+\paragraph{Access to memory} For many workloads, the performance benefits of parallelization are hindered by the large and often unpredictable overheads of launching GPU kernels and of transferring data between CPU and GPU. Therefore, we tried to limit as much as possible communications between the host and the device. We mainly used registers memory, that is the fastest one. These variables stored in registers are local. We have also tried a version of the algorithm using shared memory for values that are accessed multiple times.
+
+\section{Results}
+
+\subsection{The scripts that we have used}
+\subsubsection{Testing the different algorithms individually}
+\begin{itemize}
+    \item main\_cpu\_double.cu: CPU is used, with a double precision to compute the n roots of a secular equation, n being given by the user.
+    \item main\_cpu\_float.cu: CPU is used, with a single precision to compute the n roots of a secular equation, n being given by the user
+    \item main\_gpu.cu: GPU is used, with a single precision to compute the n roots of a secular equation, n being given by the user.
+\end{itemize}
+
+\subsubsection{Comparing the performance}
+
+\paragraph{Directly in the terminal}
+\begin{itemize}
+    \item comp\_console.cu: Both CPU and GPU with single precision are used to compute the n roots of a secular equation, n being given by the user. The differential in performance can be seen immediately in the console (running time and magnitude of the loss)
+
+\end{itemize}
+
+\paragraph{Generating a csv that can be graphically read in a Python notebook}
+\begin{itemize}
+    \item comp\_table.cu: Both CPU and GPU with single precision are used to compute the n roots of a secular equation. A range of n is given by the user and performance (running time and magnitude of the error) is stored on a csv file ('result.csv'). To compare them on a fair basis, the user can choose to run the test several time. For each n being tested, the GPU is warmed-up before the first iteration. To try with high values of $n$, the user can also choose not to compute the roots with the CPU (only GPU)
+    \item double.cu: Performs the same task with double precision for the CPU (output is 'result\_double.csv')
+    \item memory.cu: Performs the same task with the GPU, in a version using shared memory (output is 'result\_mem.csv')
+    \item initialization.cu: Performs the same task with CPU, the algorithm being initialized randomly as described before (output is 'result\_init.csv')
+\end{itemize}
+
+
+Cf notebook "Charts" à commenter, qui regroupe les graphiques de performance sur 
+
+
+\printbibliography
+
+
+\end{document}
