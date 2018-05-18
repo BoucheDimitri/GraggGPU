@@ -243,12 +243,7 @@ __device__ float find_root_int(float *dGPU, float *zsqrGPU, float rho, float x, 
         i ++;
     }
 
-    if (k == 0){
-        printf("\n");
-        printf("********************* CONTROLS ********************* \n");
-        printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
-    }
-
+    // Print eigenvalue regularly to check their value and the associated spectral function
     if (k%(int)(n/10) == 0){
         printf("eigenvalue %d: %f, with spectral function %f after %d iterations \n", k, x, f, i);
     }
@@ -280,21 +275,31 @@ __device__ float find_root_ext(float *dGPU, float *zsqrGPU, float rho, float x, 
 
 
 // Kernel to launch and distribute the searching of roots among GPU cores
-__global__ void find_roots_kernel(float *xstarGPU, float *x0GPU, float *dGPU, float *zsqrGPU, float *znorm, float rho, int n, int maxit, int epsilon){
+__global__ void find_roots_kernel(float *xstarGPU, float *x0GPU, float *dGPU, float *zsqrGPU, float *znorm, float rho, int n, int maxit, float epsilon){
+
+    // We define shared variables for values that are used by multiple threads
+    __shared__ float rho_shared, epsilon_shared;
+    __shared__ int n_shared, maxit_shared;
+
+    rho_shared = rho;
+    epsilon_shared = epsilon;
+    n_shared = n;
+    maxit_shared = maxit;
+
 
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
 		// First core gets search of the last root (the exterior one)
     if (idx == 0){
         float x = x0GPU[n - 1];
-        xstarGPU[n - 1] = find_root_ext(dGPU, zsqrGPU, rho, x, n, maxit, epsilon);
+        xstarGPU[n - 1] = find_root_ext(dGPU, zsqrGPU, rho_shared, x, n_shared, maxit_shared, epsilon_shared);
     }
 
 		// Each next core searches one interval (interior interval)
     else {
         while (idx < n) {
             float x = x0GPU[idx - 1];
-            xstarGPU[idx - 1] = find_root_int(dGPU, zsqrGPU, rho, x, idx - 1, n, maxit, epsilon);
+            xstarGPU[idx - 1] = find_root_int(dGPU, zsqrGPU, rho_shared, x, idx - 1, n_shared, maxit_shared, epsilon_shared);
 						// in case we have not launched enough cores to cover all intervals
           	idx += gridDim.x * blockDim.x;
         }
@@ -306,23 +311,42 @@ __global__ void find_roots_kernel(float *xstarGPU, float *x0GPU, float *dGPU, fl
 // Kernel to compute the initial guesses from the paper on GPU
 __global__ void initialize_x0_kernel(float *x0GPU, float *dGPU, float *zsqrGPU, float *znorm, float rho, int n){
 
+    // We define shared variables for values that are used by multiple threads
+    __shared__ float znormGPU_shared, rho_shared;
+    __shared__ int n_shared;
+
+    znormGPU_shared = *znorm;
+    rho_shared = rho;
+    n_shared = n;
+
+
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
 		// First core compute the initial guess for last root (the exterior one)
     if (idx == 0){
-        x0GPU[n - 1] = initialization_ext(dGPU, zsqrGPU, znorm, rho,  n);
+        x0GPU[n - 1] = initialization_ext(dGPU, zsqrGPU, &znormGPU_shared, rho_shared,  n_shared);
     }
 
 		// Each next core compute initial guess for one interval (interior interval)
     else {
     		while (idx < n) {
-        		x0GPU[idx - 1] = initialization_int(dGPU, zsqrGPU, rho, idx - 1, n);
+        		x0GPU[idx - 1] = initialization_int(dGPU, zsqrGPU, rho_shared, idx - 1, n_shared);
         	  idx += gridDim.x * blockDim.x;
         }
     }
 }
 
+// Kernel to "wake up" the GPU
+__global__ void wake_up(int *test){
 
+  __shared__ int c;
+  c = 3;
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if(idx < 1024)
+	{
+		test[idx] += c;
+	}
+}
 
 
 
@@ -338,21 +362,20 @@ int main (void) {
 
 
     // Size of arrow matrix chosen by the user
-    //int n= 10;
     int n;
     printf("\nWhich n (number of roots for the function) do you want? \n");
     scanf("%d", &n);
     printf("\n \n******************* CHOICE OF N ******************** \n");
     printf("n = %d\n", n);
 
+    /************* Hyperparameters setting **************/
     //Maximum number of iterations
     int maxit = 1e4;
-
 
     //Stopping criterion
     float epsilon = 1e-6;
 
-
+    /***************** Data generation *****************/
     // Memory allocation
     d = (float*)malloc(n*sizeof(float));
     z = (float*)malloc(n*sizeof(float));
@@ -370,30 +393,31 @@ int main (void) {
     // sort the vector in ascending order
     qsort(d, n, sizeof(float), compare_function);
 
-    //print_vector(d, 10, n);
-    // Fill a as a vector of gaussian of mean mu and std sigma
-    //float mu_d = 0.5 * n;
-    //float sigma_d = 0.05 * n;
-    //gaussian_vector(d, mu_d, sigma_d, n);
-    // We sort by descending order then
-    //qsort(d, n, sizeof(float), compare_function);
-
-    //print_vector(d, 10, n);
-
-
-    //for (int i=0; i < n; i++){
-        //z[i] = n - i;
-    //}
 
     // Gaussian rank 1 perturbation
     float mu_z = 5;
     float sigma_z = 1;
     gaussian_vector(z, mu_z, sigma_z, n);
 
-    // Start timer
-    Tim.start();
+    /**************** Wake Up GPU *****************/
+
+    // We first wake up the GPU
+    int *testGPU;
+    cudaMalloc(&testGPU, 1024*sizeof(int));
+    wake_up <<<1024, 512>>> (testGPU);
+    cudaFree(testGPU);
+
+    /**************** Information Display *****************/
+    printf("\n\n**************************************************** \n");
+    printf("*********************** GPU ************************ \n");
+    printf("**************************************************** \n\n\n");
+    printf("********************* CONTROLS ********************* \n");
+    printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
+
 
     /***************** GPU memory alloc *****************/
+    // Start timer
+    Tim.start();
 
     // Declare vectors on GPU
     float *dGPU, *zsqrGPU, *znorm, *x0GPU, *xstarGPU;
@@ -406,27 +430,20 @@ int main (void) {
     // Container for the results
     cudaMalloc(&xstarGPU, n*sizeof(float));
 
-
     /***************** Transfer on GPU *****************/
-
-
     // Transfers on GPU
     cudaMemcpy(dGPU, d, n*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(zsqrGPU, z, n*sizeof(float), cudaMemcpyHostToDevice);
 
-
     // We first compute the square and squared norm
     square_kernel <<<1024, 512>>> (zsqrGPU, znorm, n);
-
 
     // Initialization of x0 on GPU
     initialize_x0_kernel <<<1024, 512>>> (x0GPU, dGPU, zsqrGPU, znorm, rho, n);
 
-
     /***************** Root computation ****************/
     // Find roots on GPU
     find_roots_kernel <<<1024, 512>>> (xstarGPU, x0GPU, dGPU, zsqrGPU, znorm, rho, n, maxit, epsilon);
-
 
     // Transfer results on CPU to print it
     cudaMemcpy(xstar, xstarGPU, n*sizeof(float), cudaMemcpyDeviceToHost);
@@ -448,10 +465,11 @@ int main (void) {
     //print_vector(x0_vec, 10, n);
 
 
-
+    /***************** Freeing Memory ****************/
     // Free memory on GPU
     cudaFree(dGPU);
     cudaFree(zsqrGPU);
+    cudaFree(znorm);
     cudaFree(x0GPU);
     cudaFree(xstarGPU);
 

@@ -40,7 +40,7 @@ void print_vector(float *c, int m, int n) {
 }
 
 
-// Kernel for computing the square of a vector (INPLACE)
+// Function for computing the square of a vector (INPLACE)
 // We actually only need z ** 2 in the computations and not z
 // The square norm is also computed
 void square_vector(float *z, float *znorm, int n){
@@ -78,7 +78,7 @@ float secfunc_prime(float *d, float *zsqr, float x, int n) {
 }
 
 
-// Device function for computing f'' (the second derivative of the secular function of interest)
+// Function for computing f'' (the second derivative of the secular function of interest)
 float secfunc_second(float *d, float *zsqr, float x, int n){
     float sum = 0;
 
@@ -239,12 +239,7 @@ float find_root_int(float *d, float *zsqr, float rho, float x, int k, int n, int
         i ++;
     }
 
-    if (k == 0){
-        printf("\n");
-        printf("********************* CONTROLS ********************* \n");
-        printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
-    }
-
+    // Print eigenvalue regularly to check their value and the associated spectral function
     if (k%(int)(n/10) == 0){
         printf("eigenvalue %d: %f, with spectral function %f after %d iterations \n", k, x, f, i);
     }
@@ -275,7 +270,7 @@ float find_root_ext(float *d, float *zsqr, float rho, float x, int n, int maxit,
 }
 
 
-void find_roots(float *xstar, float *x0, float *d, float *zsqr, float *znorm, float rho, int n, int maxit, int epsilon){
+void find_roots(float *xstar, float *x0, float *d, float *zsqr, float *znorm, float rho, int n, int maxit, float epsilon){
 
 		for (int i=0; i<n-1; i++){
 				xstar[i] = find_root_int(d, zsqr, rho, x0[i], i, n, maxit, epsilon);
@@ -309,13 +304,13 @@ int main (void) {
 
 
     // Size of arrow matrix chosen by the user
-    //int n= 10;
     int n;
     printf("\nWhich n (number of roots for the function) do you want? \n");
     scanf("%d", &n);
     printf("\n \n******************* CHOICE OF N ******************** \n");
     printf("n = %d\n", n);
 
+    /************* Hyperparameters setting **************/
     //Maximum number of iterations
     int maxit = 1e3;
 
@@ -323,7 +318,7 @@ int main (void) {
     //Stopping criterion
     float epsilon = 1e-6;
 
-
+    /***************** Data generation *****************/
     // Memory allocation
     d = (float*)malloc(n*sizeof(float));
     zsqr = (float*)malloc(n*sizeof(float));
@@ -343,24 +338,19 @@ int main (void) {
     // sort the vector in ascending order
     qsort(d, n, sizeof(float), compare_function);
 
-    //print_vector(d, 10, n);
-    // Fill a as a vector of gaussian of mean mu and std sigma
-    //float mu_d = 0.5 * n;
-    //float sigma_d = 0.05 * n;
-    //gaussian_vector(d, mu_d, sigma_d, n);
-    // We sort by descending order then
-    //qsort(d, n, sizeof(float), compare_function);
-
-    //print_vector(d, 10, n);
-
-
-    //for (int i=0; i < n; i++){
-    		//zsqr[i] = n - i;
-    //}
 
     float mu_z = 5;
     float sigma_z = 1;
     gaussian_vector(zsqr, mu_z, sigma_z, n);
+
+
+    /**************** Information Display *****************/
+    printf("\n\n**************************************************** \n");
+    printf("*********************** GPU ************************ \n");
+    printf("**************************************************** \n\n\n");
+    printf("********************* CONTROLS ********************* \n");
+    printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
+
 
     // Start timer
     Tim.start();
@@ -390,7 +380,7 @@ int main (void) {
     // Print how long it took
     printf("CPU timer for root finding : %f s\n\n", (float)Tim.getsum());
 
-
+    /***************** Freeing Memory ****************/
     // Free memory on CPU
     free(d);
 		free(znorm);
