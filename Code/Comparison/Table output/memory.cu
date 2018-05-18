@@ -270,7 +270,7 @@ float find_root_ext(float *d, float *zsqr, float rho, float x, int n, int maxit,
 }
 
 
-void find_roots(float *xstar, float *x0, float *d, float *zsqr, float *znorm, float rho, int n, int maxit, int epsilon, float *loss_CPU){
+void find_roots(float *xstar, float *x0, float *d, float *zsqr, float *znorm, float rho, int n, int maxit, float epsilon, float *loss_CPU){
     // We make sure that the loss is set to 0
     *loss_CPU =0;
 
