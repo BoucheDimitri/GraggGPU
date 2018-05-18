@@ -275,7 +275,7 @@ float find_root_ext(float *d, float *zsqr, float rho, float x, int n, int maxit,
 }
 
 
-void find_roots(float *xstar, float *x0, float *d, float *zsqr, float *znorm, float rho, int n, int maxit, int epsilon, float *loss_CPU){
+void find_roots(float *xstar, float *x0, float *d, float *zsqr, float *znorm, float rho, int n, int maxit, float epsilon, float *loss_CPU){
     // We make sure that the loss is set to 0
     *loss_CPU =0;
 
@@ -541,7 +541,7 @@ __device__ float find_root_ext_g(float *dGPU, float *zsqrGPU, float rho, float x
 
 
 // Kernel to launch and distribute the searching of roots among GPU cores
-__global__ void find_roots_kernel_g(float *xstarGPU, float *x0GPU, float *dGPU, float *zsqrGPU, float *znormGPU, float rho, int n, int maxit, int epsilon, float *avloss_GPU){
+__global__ void find_roots_kernel_g(float *xstarGPU, float *x0GPU, float *dGPU, float *zsqrGPU, float *znormGPU, float rho, int n, int maxit, float epsilon, float *avloss_GPU){
 
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -586,6 +586,17 @@ __global__ void initialize_x0_kernel_g(float *x0GPU, float *dGPU, float *zsqrGPU
     }
 }
 
+// Kernel to "wake up" the GPU
+__global__ void wake_up(int *test)
+{
+  __shared__ int c;
+  c = 3;
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if(idx < 1024)
+	{
+		test[idx] += c;
+	}
+}
 
 
 
@@ -639,20 +650,6 @@ int main (void) {
     // sort the vector in ascending order
     qsort(d, n, sizeof(float), compare_function);
 
-    //print_vector(d, 10, n);
-    // Fill a as a vector of gaussian of mean mu and std sigma
-    //float mu_d = 0.5 * n;
-    //float sigma_d = 0.05 * n;
-    //gaussian_vector(d, mu_d, sigma_d, n);
-    // We sort by descending order then
-    //qsort(d, n, sizeof(float), compare_function);
-
-    //print_vector(d, 10, n);
-
-
-    //for (int i=0; i < n; i++){
-        //z[i] = n - i;
-    //}
 
     // Gaussian rank 1 perturbation
     float mu_z = 5;
@@ -666,6 +663,12 @@ int main (void) {
     printf("**************************************************** \n\n\n");
     printf("********************* CONTROLS ********************* \n");
     printf("We print the first, the last and 10 %% of the interior eigenvalues as a check \n");
+
+    // We first wake up the GPU if first iteration
+    int *testGPU;
+    cudaMalloc(&testGPU, 1024*sizeof(int));
+    wake_up <<<1024, 512>>> (testGPU);
+    cudaFree(testGPU);
 
 
     // Start timer GPU
